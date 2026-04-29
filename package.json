@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "desktop": "npm run build && electron .",
     "dev:desktop": "concurrently -k \"vite\" \"set ELECTRON_START_URL=http://localhost:5173&& electron .\"",
-    "dist:win": "npm run build && electron-builder --win portable"
+    "dist:win": "npm run build && electron-builder --win portable",
+    "dist:setup": "npm run build && electron-builder --win nsis -c.win.signAndEditExecutable=false -c.win.artifactName=CGFS-Settings-Editor-Setup-${version}.${ext} -c.nsis.oneClick=false -c.nsis.allowToChangeInstallationDirectory=true -c.nsis.createDesktopShortcut=true -c.nsis.createStartMenuShortcut=true -c.nsis.shortcutName=CGFS-Settings-Editor"
   },
   "build": {
     "appId": "com.michelmk.cgfssettingseditor",
