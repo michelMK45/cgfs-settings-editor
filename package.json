@@ -1,0 +1,40 @@
+{
+  "name": "cgfs-settings-editor",
+  "version": "0.0.0",
+  "private": true,
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "desktop": "npm run build && electron .",
+    "dev:desktop": "concurrently -k \"vite\" \"set ELECTRON_START_URL=http://localhost:5173&& electron .\"",
+    "dist:win": "npm run build && electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.michelmk.cgfssettingseditor",
+    "productName": "CGFS Settings Editor",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        "portable"
+      ],
+      "artifactName": "${productName}-Portable-${version}.${ext}"
+    }
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "electron": "^41.3.0",
+    "electron-builder": "^26.8.1",
+    "vite": "^8.0.10"
+  }
+}
