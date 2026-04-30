@@ -141,6 +141,217 @@ const state = {
   viewMode: 'visual',
   unsaved: false,
   selectedItems: {},
+  db: {
+    teams: [],
+    filteredTeams: [],
+    search: '',
+    collapsed: true,
+    loading: false,
+    gameRootPath: '',
+  },
+}
+
+const isDesktopApp = !!window.electronAPI?.isDesktop
+
+function setDbStatus(message, type = '') {
+  const statusEl = document.getElementById('db-status')
+  if (!statusEl) return
+  statusEl.textContent = message
+  statusEl.className = 'panel-db-status' + (type ? ' ' + type : '')
+}
+
+function persistDbPanelState() {
+  try {
+    localStorage.setItem('dbPanelCollapsed', state.db.collapsed ? '1' : '0')
+  } catch (e) {
+    // ignore storage errors
+  }
+}
+
+function loadDbPanelState() {
+  try {
+    const saved = localStorage.getItem('dbPanelCollapsed')
+    // Default to collapsed when there is no previous user preference.
+    state.db.collapsed = saved === null ? true : saved === '1'
+  } catch (e) {
+    state.db.collapsed = true
+  }
+}
+
+function syncDbPanelLayout() {
+  const layout = document.querySelector('.main-layout')
+  const panel = document.getElementById('panel-db')
+  const toggleBtn = document.getElementById('db-toggle')
+  if (!layout || !panel || !toggleBtn) return
+
+  layout.classList.toggle('db-collapsed', state.db.collapsed)
+  panel.classList.toggle('collapsed', state.db.collapsed)
+  toggleBtn.textContent = state.db.collapsed ? '◀DB' : '▶'
+  toggleBtn.title = state.db.collapsed ? 'Expand panel' : 'Collapse panel'
+  toggleBtn.setAttribute('aria-label', toggleBtn.title)
+}
+
+function applyDbFilter() {
+  const q = (state.db.search || '').trim().toLowerCase()
+  if (!q) {
+    state.db.filteredTeams = [...state.db.teams]
+    return
+  }
+  state.db.filteredTeams = state.db.teams.filter((team) => String(team.id).includes(q) || team.name.toLowerCase().includes(q))
+}
+
+function getDraggedTeamId(dataTransfer) {
+  if (!dataTransfer) return ''
+  return dataTransfer.getData('application/x-cgfs-team-id') || dataTransfer.getData('text/plain') || ''
+}
+
+function renderDbTeams() {
+  const body = document.getElementById('db-teams-body')
+  const countEl = document.getElementById('db-teams-count')
+  if (!body || !countEl) return
+
+  const rows = state.db.filteredTeams
+  countEl.textContent = String(rows.length)
+  body.innerHTML = ''
+
+  if (!rows.length) {
+    const tr = document.createElement('tr')
+    tr.innerHTML = '<td colspan="2" class="db-empty">No teams found.</td>'
+    body.appendChild(tr)
+    return
+  }
+
+  rows.forEach((team) => {
+    const tr = document.createElement('tr')
+    tr.className = 'db-team-row'
+    tr.draggable = true
+    tr.title = 'Drag this team ID to an ID field in the editor'
+    tr.innerHTML = `<td>${team.id}</td><td title="${team.name}">${team.name}</td>`
+
+    tr.addEventListener('dragstart', (e) => {
+      const idText = String(team.id)
+      e.dataTransfer.effectAllowed = 'copy'
+      e.dataTransfer.setData('application/x-cgfs-team-id', idText)
+      e.dataTransfer.setData('text/plain', idText)
+      tr.classList.add('dragging')
+    })
+
+    tr.addEventListener('dragend', () => {
+      tr.classList.remove('dragging')
+    })
+
+    body.appendChild(tr)
+  })
+}
+
+async function loadDbTeams(explicitRootPath = '') {
+  if (!isDesktopApp || !window.electronAPI?.db?.getTeams) {
+    setDbStatus('DB panel is available only in Desktop (Electron).', 'err')
+    return
+  }
+
+  state.db.loading = true
+  setDbStatus('Loading teams from FIFA DB...')
+
+  try {
+    const result = await window.electronAPI.db.getTeams(explicitRootPath || state.db.gameRootPath || undefined)
+    state.db.teams = Array.isArray(result?.teams) ? result.teams : []
+    state.db.gameRootPath = result?.gameRootPath || state.db.gameRootPath
+    applyDbFilter()
+    renderDbTeams()
+    setDbStatus('Loaded ' + state.db.teams.length + ' teams from database, drag a team to the ID field in the editor.', 'ok')
+  } catch (e) {
+    state.db.teams = []
+    applyDbFilter()
+    renderDbTeams()
+    setDbStatus('DB load failed: ' + (e?.message || e), 'err')
+  } finally {
+    state.db.loading = false
+  }
+}
+
+async function pickGameRootForDb() {
+  if (!isDesktopApp || !window.electronAPI?.pickGameRoot) {
+    setDbStatus('Desktop-only feature: use Electron app build.', 'err')
+    return
+  }
+
+  try {
+    const picked = await window.electronAPI.pickGameRoot()
+    if (!picked || picked.canceled) return
+    state.db.gameRootPath = picked.gameRootPath || ''
+    await window.electronAPI.db.setGameRoot(state.db.gameRootPath)
+    await loadDbTeams(state.db.gameRootPath)
+  } catch (e) {
+    setDbStatus('Could not select game root: ' + (e?.message || e), 'err')
+  }
+}
+
+async function initDbPanel() {
+  loadDbPanelState()
+  syncDbPanelLayout()
+
+  const toggleBtn = document.getElementById('db-toggle')
+  const refreshBtn = document.getElementById('db-refresh')
+  const pickRootBtn = document.getElementById('db-pick-root')
+  const searchInput = document.getElementById('db-search')
+
+  toggleBtn?.addEventListener('click', () => {
+    state.db.collapsed = !state.db.collapsed
+    persistDbPanelState()
+    syncDbPanelLayout()
+  })
+
+  refreshBtn?.addEventListener('click', () => {
+    loadDbTeams()
+  })
+
+  pickRootBtn?.addEventListener('click', () => {
+    pickGameRootForDb()
+  })
+
+  searchInput?.addEventListener('input', (e) => {
+    state.db.search = e.target.value || ''
+    applyDbFilter()
+    renderDbTeams()
+  })
+
+  if (!isDesktopApp || !window.electronAPI?.db?.clearGameRoot) {
+    setDbStatus('DB panel is available only in Desktop (Electron).', 'err')
+    return
+  }
+
+  try {
+    state.db.gameRootPath = ''
+    state.db.teams = []
+    applyDbFilter()
+    renderDbTeams()
+    await window.electronAPI.db.clearGameRoot?.()
+    setDbStatus('Desktop DB reader ready. Select your FIFA 16 root folder.')
+  } catch (e) {
+    setDbStatus('Could not initialize DB reader: ' + (e?.message || e), 'err')
+  }
+}
+
+async function resetDbPanelState(statusMessage = 'DB reset. Select your FIFA 16 root folder for database teams.') {
+  state.db.gameRootPath = ''
+  state.db.teams = []
+  state.db.search = ''
+
+  const searchInput = document.getElementById('db-search')
+  if (searchInput) searchInput.value = ''
+
+  applyDbFilter()
+  renderDbTeams()
+  setDbStatus(statusMessage)
+
+  if (isDesktopApp && window.electronAPI?.db?.clearGameRoot) {
+    try {
+      await window.electronAPI.db.clearGameRoot()
+    } catch (e) {
+      // keep UI reset even if IPC cleanup fails
+    }
+  }
 }
 
 // ============================================================
@@ -309,6 +520,7 @@ document.getElementById('browse-root').addEventListener('click', async () => {
     updatePreviews()
     saveLastPath(handle.name)
     await saveDirectoryHandle(handle)
+    await resetDbPanelState('Game folder changed. Select DB root again to load teams.')
     toast('Root folder selected: ' + handle.name, 'success')
   } catch (e) {
     if (e.name !== 'AbortError') toast('Could not open folder: ' + e.message, 'error')
@@ -945,7 +1157,10 @@ function renderEditor() {
   document.getElementById('btn-add-entry').style.display = hidePanel ? '' : 'none'
   const hideSortBtn = isRawOnly || state.currentType === 'stadiumnetname' || state.currentType === 'scoreboardstdname'
   document.getElementById('btn-sort').style.display = hideSortBtn ? 'none' : ''
-  document.querySelector('.main-layout').style.gridTemplateColumns = hasPanel ? '320px 1fr' : '1fr'
+  const layout = document.querySelector('.main-layout')
+  if (layout) {
+    layout.classList.toggle('left-hidden', !hasPanel)
+  }
 
   const tabsContainer = document.getElementById('section-tabs')
   tabsContainer.innerHTML = ''
@@ -1084,6 +1299,32 @@ function renderSectionVisual(secName) {
         }
         const currentComment = commentInput ? commentInput.value.trim() : undefined
         updateEntryLine(secName, myVisualIdx, idInput.value.trim(), sv, currentComment)
+      })
+
+      idInput.addEventListener('dragover', (e) => {
+        const droppedId = getDraggedTeamId(e.dataTransfer)
+        if (!droppedId) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'copy'
+        idInput.classList.add('drag-over')
+      })
+
+      idInput.addEventListener('dragleave', () => {
+        idInput.classList.remove('drag-over')
+      })
+
+      idInput.addEventListener('drop', (e) => {
+        e.preventDefault()
+        idInput.classList.remove('drag-over')
+        const droppedId = getDraggedTeamId(e.dataTransfer).trim()
+        if (!/^\d+$/.test(droppedId)) {
+          toast('Dropped value is not a valid numeric ID.', 'error')
+          return
+        }
+
+        idInput.value = droppedId
+        updateIdClass()
+        idInput.dispatchEvent(new Event('change', { bubbles: true }))
       })
     }
 
@@ -1349,7 +1590,10 @@ function removeEntry(secName, visualIdx) {
 function renderModulesEditor() {
   document.getElementById('raw-editor').classList.remove('visible')
   document.querySelector('.panel-left').style.display = 'none'
-  document.querySelector('.main-layout').style.gridTemplateColumns = '1fr'
+  const layout = document.querySelector('.main-layout')
+  if (layout) {
+    layout.classList.add('left-hidden')
+  }
   document.getElementById('btn-add-selected').style.display = 'none'
   document.getElementById('btn-add-all').style.display = 'none'
   document.getElementById('btn-add-entry').style.display = 'none'
@@ -1660,6 +1904,7 @@ document.getElementById('search-items').addEventListener('input', () => renderIt
 document.addEventListener('DOMContentLoaded', async () => {
   await initIndexedDB()
   showLastPathSuggestion()
+  await initDbPanel()
 })
 
 document.getElementById('btn-load-suggestion').addEventListener('click', async () => {
@@ -1703,6 +1948,7 @@ document.getElementById('btn-load-suggestion').addEventListener('click', async (
   document.getElementById('root-status').textContent = 'Folder loaded: ' + lastPath
   document.getElementById('root-status').className = 'path-status ok'
   updatePreviews()
+  await resetDbPanelState('Game folder reconnected. Select DB root again to load teams.')
   await loadFromHandle(handle)
 })
 

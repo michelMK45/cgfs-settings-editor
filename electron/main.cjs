@@ -1,7 +1,11 @@
-const { app, BrowserWindow } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog } = require('electron')
 const path = require('node:path')
+const { readTeamsFromGameRoot } = require('./db-reader.cjs')
 
 const devUrl = process.env.ELECTRON_START_URL
+const dbState = {
+  gameRootPath: '',
+}
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -14,6 +18,7 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.cjs'),
     },
   })
 
@@ -29,6 +34,63 @@ function createWindow() {
     win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   }
 }
+
+function isValidRoot(gameRootPath) {
+  return typeof gameRootPath === 'string' && gameRootPath.trim().length > 1
+}
+
+ipcMain.handle('app:pickGameRoot', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory'],
+    title: 'Select FIFA 16 Root Folder',
+  })
+
+  if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+    return { canceled: true }
+  }
+
+  const selectedPath = result.filePaths[0]
+  dbState.gameRootPath = selectedPath
+  return { canceled: false, gameRootPath: selectedPath }
+})
+
+ipcMain.handle('db:setGameRoot', async (_event, gameRootPath) => {
+  if (!isValidRoot(gameRootPath)) {
+    throw new Error('Invalid game root path.')
+  }
+
+  dbState.gameRootPath = gameRootPath.trim()
+  return { ok: true, gameRootPath: dbState.gameRootPath }
+})
+
+ipcMain.handle('db:getState', async () => {
+  return {
+    isDesktop: true,
+    gameRootPath: dbState.gameRootPath,
+    hasGameRoot: !!dbState.gameRootPath,
+  }
+})
+
+ipcMain.handle('db:clearGameRoot', async () => {
+  dbState.gameRootPath = ''
+  return { ok: true }
+})
+
+ipcMain.handle('db:getTeams', async (_event, maybeGameRootPath) => {
+  const gameRootPath = isValidRoot(maybeGameRootPath) ? maybeGameRootPath.trim() : dbState.gameRootPath
+
+  if (!isValidRoot(gameRootPath)) {
+    throw new Error('Game root path not set. Please select your FIFA 16 root folder first.')
+  }
+
+  dbState.gameRootPath = gameRootPath
+  const teams = await readTeamsFromGameRoot(gameRootPath)
+  return {
+    ok: true,
+    teams,
+    gameRootPath,
+  }
+})
 
 app.whenReady().then(() => {
   createWindow()

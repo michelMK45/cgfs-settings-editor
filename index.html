@@ -15,7 +15,7 @@
     <header>
       <div class="logo">
         <span>CGFS</span>
-        <span class="logo-badge">SETTINGS EDITOR V1.1</span>
+        <span class="logo-badge">SETTINGS EDITOR V1.3</span>
       </div>
       <div class="header-status" id="header-status">
         <div class="status-dot" id="status-dot"></div>
@@ -82,15 +82,7 @@
             style="color: var(--text);">Browse</strong> to select your root folder. The browser will ask for permission to
           read/write files.
         </div>
-        <div
-          style="background: rgba(245,166,35,0.05); border: 1px solid rgba(245,166,35,0.2); border-radius: 6px; padding: 12px 14px; margin-bottom: 20px; font-size: 11px; color: var(--text2); line-height: 1.6;">
-          <strong style="color: var(--amber); font-size: 11px;">Team IDs:</strong> To find the correct Team ID for each
-          entry, use
-          <strong style="color: var(--text);"><a
-              href="https://sites.google.com/view/thefootballmaster/download?authuser=0" target="_blank">DB Master by
-              Rinaldo</a></strong>
-        </div>
-
+        
         <button class="btn primary" id="load-btn">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <path d="M7 1v8M3 5l4 4 4-4M1 10v1a2 2 0 002 2h8a2 2 0 002-2v-1" stroke="currentColor" stroke-width="1.5"
@@ -194,6 +186,42 @@
           </div>
         </div>
 
+        <!-- DB TEAMS PANEL -->
+        <aside class="panel-db" id="panel-db">
+          <div class="panel-db-header">
+            <div class="panel-db-title-wrap">
+              <div class="panel-db-title">DB Teams</div>
+              <span class="count-badge" id="db-teams-count">0</span>
+            </div>
+            <div class="panel-db-actions">
+              <button class="btn db-toggle-icon" id="db-toggle" title="Collapse panel" aria-label="Collapse panel">◀</button>
+              <button class="btn" id="db-pick-root" title="Select game root folder">Game Root</button>
+              <button class="btn" id="db-refresh" title="Reload teams list">Refresh</button>
+            </div>
+          </div>
+
+          <div class="panel-db-status" id="db-status">Desktop DB reader ready. Select your FIFA 16 root folder.</div>
+          <div class="panel-db-search-wrap">
+            <input type="text" class="search-box" id="db-search" placeholder="Search team id or name...">
+          </div>
+
+          <div class="panel-db-table-wrap" id="db-table-wrap">
+            <table class="db-table" id="db-teams-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Name</th>
+                </tr>
+              </thead>
+              <tbody id="db-teams-body">
+                <tr>
+                  <td colspan="2" class="db-empty">No teams loaded.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </aside>
+
       </div>
 
       <!-- FOOTER -->
@@ -205,7 +233,7 @@
           <span>-</span>
           <span id="footer-stadiums-loaded">0 folders</span>
         </div>
-        <div style="font-size: 11px; color: var(--text3);">CGFS Settings Editor V1.1 - <a
+        <div style="font-size: 11px; color: var(--text3);">CGFS Settings Editor V1.3 - <a
             href="https://soccergaming.com/forums/members/michelmk.288276/" target="_blank">MichelMK</a></div>
       </footer>
     </div>
