@@ -261,6 +261,21 @@ function updateStatusBar(text, ok = false) {
   document.getElementById('status-dot').className = 'status-dot' + (ok ? ' ok' : '')
 }
 
+function normalizeStadiumItemName(name) {
+  return name.replace(/\.(zip|rar)$/i, '')
+}
+
+function usesPackedStadiumItems(typeKey) {
+  return typeKey === 'stadium' || typeKey === 'scoreboardstdname' || typeKey === 'stadiumnetname'
+}
+
+function getComparableItemName(typeKey, itemName) {
+  if (usesPackedStadiumItems(typeKey)) {
+    return normalizeStadiumItemName(itemName)
+  }
+  return itemName
+}
+
 // ============================================================
 // SETUP / PATH UI
 // ============================================================
@@ -362,7 +377,13 @@ async function loadFromHandle(rootHandle) {
           folders = await loadFoldersRecursive(dir)
         } else {
           for await (const entry of dir.values()) {
-            if (entry.kind === 'directory') folders.push(entry.name)
+            if (entry.kind === 'directory') {
+              folders.push(entry.name)
+              continue
+            }
+            if (usesPackedStadiumItems(typeKey) && entry.kind === 'file' && /\.(zip|rar)$/i.test(entry.name)) {
+              folders.push(entry.name)
+            }
           }
         }
         folders.sort()
@@ -641,12 +662,24 @@ function getAddedItems(typeKey) {
       if (match && match[1]) {
         folderName = match[1].trim()
         added.add(folderName)
+        if (usesPackedStadiumItems(typeKey)) {
+          const normalized = normalizeStadiumItemName(folderName)
+          added.add(normalized)
+          added.add(normalized + '.zip')
+          added.add(normalized + '.rar')
+        }
       }
     } else {
       const eqIndex = trimmed.indexOf('=')
       if (eqIndex > 0) {
         folderName = trimmed.substring(0, eqIndex).trim()
         added.add(folderName)
+        if (usesPackedStadiumItems(typeKey)) {
+          const normalized = normalizeStadiumItemName(folderName)
+          added.add(normalized)
+          added.add(normalized + '.zip')
+          added.add(normalized + '.rar')
+        }
       }
     }
   }
@@ -1244,7 +1277,10 @@ function addItemsToSection(typeKey, items) {
   const typeConfig = GBD_TYPES[typeKey]
   const iniSec = typeConfig.iniSection
   const added = getAddedItems(typeKey)
-  const toAdd = items.filter((f) => !added.has(f))
+  const toAdd = items.filter((item) => {
+    const comparable = getComparableItemName(typeKey, item)
+    return !added.has(item) && !added.has(comparable)
+  })
 
   if (!toAdd.length) {
     toast('All selected items are already in [' + iniSec + ']', '')
@@ -1257,18 +1293,19 @@ function addItemsToSection(typeKey, items) {
   const hasID = typeConfig.hasID !== false
 
   toAdd.forEach((item) => {
+    const itemToWrite = getComparableItemName(typeKey, item)
     if (typeConfig.isScoreboardStdName) {
-      state.sections[iniSec].push(item + '=' + item + defaultSuffix)
+      state.sections[iniSec].push(itemToWrite + '=' + itemToWrite + defaultSuffix)
     } else if (hasID) {
       if (iniSec === 'stadiumnetid') {
         const suffixToWrite = defaultSuffix.startsWith(',') ? defaultSuffix.slice(1) : defaultSuffix
         state.sections[iniSec].push('???=' + suffixToWrite)
       } else {
-        state.sections[iniSec].push('???=' + item + defaultSuffix)
+        state.sections[iniSec].push('???=' + itemToWrite + defaultSuffix)
       }
     } else {
       const suffixNoComma = defaultSuffix.startsWith(',') ? defaultSuffix.slice(1) : defaultSuffix
-      state.sections[iniSec].push(item + '=' + suffixNoComma)
+      state.sections[iniSec].push(itemToWrite + '=' + suffixNoComma)
     }
   })
 
