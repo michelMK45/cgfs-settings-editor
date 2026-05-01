@@ -115,16 +115,15 @@ const GBD_TYPES = {
     path: 'StadiumGBD',
     section: 'scoreboardstdname',
     iniSection: 'scoreboardstdname',
-    defaultSuffix: ',1',
+    defaultSuffix: '',
     suffixEditable: true,
-    suffixPlaceholder: ',active',
-    suffixRegex: /^(.+?)=(.+?)(,[\d])\s*(?:;.*)?$/,
+    suffixPlaceholder: 'stadiumName',
+    suffixRegex: /^(.+?)=(.+?)\s*(?:,[01])?\s*(?:;.*)?$/,
     hint: 'Scoreboard Stadium Names - the stadium name displayed on scoreboards at match start.',
     hasID: false,
     isScoreboardStdName: true,
     suffixColumns: [
       { label: 'Stadium Name', placeholder: 'Display name for scoreboard' },
-      { label: 'Active', placeholder: '0=Inactive 1=Active', type: 'select', options: [{ label: 'Inactive', value: '0' }, { label: 'Active', value: '1' }] },
     ],
   },
 }
@@ -139,6 +138,7 @@ const state = {
   currentSection: 'stadium',
   rawSection: null,
   viewMode: 'visual',
+  scoreboardStdSectionsLinked: true,
   unsaved: false,
   selectedItems: {},
   db: {
@@ -152,6 +152,42 @@ const state = {
 }
 
 const isDesktopApp = !!window.electronAPI?.isDesktop
+const SCOREBOARD_STD_SECTIONS = ['scoreboardstdname', 'scoreboardstdnamem']
+
+function isScoreboardStdSection(secName) {
+  return SCOREBOARD_STD_SECTIONS.includes(secName)
+}
+
+function getTypeSections(typeKey) {
+  if (typeKey === 'scoreboardstdname') return SCOREBOARD_STD_SECTIONS
+  return [GBD_TYPES[typeKey].iniSection]
+}
+
+function getDefaultSectionForType(typeKey) {
+  return getTypeSections(typeKey)[0]
+}
+
+function getLinkedScoreboardStdSection(secName) {
+  if (!isScoreboardStdSection(secName)) return null
+  return secName === 'scoreboardstdname' ? 'scoreboardstdnamem' : 'scoreboardstdname'
+}
+
+function syncLinkedScoreboardSection(sourceSection) {
+  if (!state.scoreboardStdSectionsLinked || !isScoreboardStdSection(sourceSection)) return false
+
+  const targetSection = getLinkedScoreboardStdSection(sourceSection)
+  if (!targetSection) return false
+
+  const sourceLines = [...(state.sections[sourceSection] || [])]
+  const targetLines = state.sections[targetSection] || []
+  const targetBefore = targetLines.join('\n')
+  const sourceNow = sourceLines.join('\n')
+
+  if (targetBefore === sourceNow) return false
+
+  state.sections[targetSection] = sourceLines
+  return true
+}
 
 function setDbStatus(message, type = '') {
   const statusEl = document.getElementById('db-status')
@@ -659,7 +695,7 @@ function buildIni() {
   if (state.sections.__header__) {
     out += state.sections.__header__.join('\n')
   }
-  const sectionOrder = ['scoreboard', 'tvlogo', 'movies', 'teammovies', 'stadiumnetid', 'stadiumnetname', 'chantsid', 'modules', 'stadium']
+  const sectionOrder = ['scoreboard', 'scoreboardstdname', 'scoreboardstdnamem', 'tvlogo', 'movies', 'teammovies', 'stadiumnetid', 'stadiumnetname', 'chantsid', 'modules', 'stadium']
   const written = new Set()
   for (const sec of sectionOrder) {
     if (state.sections[sec] !== undefined) {
@@ -684,6 +720,8 @@ function getSectionName(sec) {
     chantsid: 'chantsid',
     movies: 'movies',
     scoreboard: 'scoreboard',
+    scoreboardstdname: 'scoreboardstdname',
+    scoreboardstdnamem: 'scoreboardstdnamem',
     stadium: 'stadium',
     teammovies: 'TeamMovies',
     modules: 'modules',
@@ -696,6 +734,9 @@ function getSectionLines(sec) {
 }
 
 function getSectionConfig(secName) {
+  if (secName === 'scoreboardstdnamem') {
+    return GBD_TYPES.scoreboardstdname
+  }
   return (
     Object.values(GBD_TYPES).find((t) => t.iniSection === secName) || {
       suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
@@ -739,7 +780,7 @@ function parseSection(secName) {
         suffix = raw2.startsWith(',') ? raw2 : raw2 ? ',' + raw2 : config.defaultSuffix
       } else if (config.isScoreboardStdName) {
         folder = m[1]
-        suffix = m[2] + (m[3] || ',1')
+        suffix = (m[2] || '').replace(/,[01]$/, '')
       } else {
         const suffixMatch = fullVal.match(/(,[\d.,]+)$/)
         suffix = suffixMatch ? suffixMatch[1] : ''
@@ -812,7 +853,7 @@ function renderGBDTypeTabs() {
 
     tab.addEventListener('click', () => {
       state.currentType = typeKey
-      state.currentSection = GBD_TYPES[typeKey].iniSection
+      state.currentSection = getDefaultSectionForType(typeKey)
       state.viewMode = 'visual'
       renderAll()
       updateEditorHint(typeKey)
@@ -846,6 +887,7 @@ function updateEditorHint(typeKey) {
   const hints = {
     stadium: 'Add stadium folders here. Set the Team ID for each entry.',
     scoreboard: 'Add scoreboard folders. Map to scoreboard IDs.',
+    scoreboardstdname: 'Scoreboard stadium names: use [scoreboardstdname] and [scoreboardstdnamem]. Enable link to mirror edits in both sections.',
     movies: 'Add movie folders for intro/outro sequences.',
     tvlogo: 'Add TV logo folders.',
     stadiumnetid: 'Editor for stadium net IDs. Format: stadiumID=downDeep,highDeep,rig,shape',
@@ -855,8 +897,8 @@ function updateEditorHint(typeKey) {
   document.getElementById('editor-hint').textContent = hints[typeKey] || 'Edit entries for this section.'
 }
 
-function getAddedItems(typeKey) {
-  const iniSec = GBD_TYPES[typeKey].iniSection
+function getAddedItems(typeKey, sectionOverride = null) {
+  const iniSec = sectionOverride || GBD_TYPES[typeKey].iniSection
   const lines = getSectionLines(iniSec)
   const cfg = getSectionConfig(iniSec)
   const hasID = cfg.hasID !== false
@@ -1143,7 +1185,11 @@ function renderEditor() {
   }
 
   const typeConfig = GBD_TYPES[state.currentType]
-  const iniSec = typeConfig.iniSection
+  const sectionsForType = getTypeSections(state.currentType)
+  if (!sectionsForType.includes(state.currentSection)) {
+    state.currentSection = sectionsForType[0]
+  }
+  const iniSec = state.currentSection
 
   const isRawOnly = !!typeConfig.rawOnly
   const hidePanel = state.currentType === 'stadiumnetid'
@@ -1164,12 +1210,54 @@ function renderEditor() {
 
   const tabsContainer = document.getElementById('section-tabs')
   tabsContainer.innerHTML = ''
-  const tab = document.createElement('div')
-  tab.className = 'section-tab active'
-  tab.dataset.section = iniSec
-  const count = parseSection(iniSec).filter((e) => e.type === 'entry').length
-  tab.innerHTML = `[${iniSec}] <span class="tab-count">${count}</span>`
-  tabsContainer.appendChild(tab)
+  const createSectionTab = (sectionName) => {
+    const tab = document.createElement('div')
+    tab.className = 'section-tab' + (sectionName === state.currentSection ? ' active' : '')
+    tab.dataset.section = sectionName
+    const count = parseSection(sectionName).filter((e) => e.type === 'entry').length
+    tab.innerHTML = `[${sectionName}] <span class="tab-count">${count}</span>`
+    tab.addEventListener('click', () => {
+      if (state.currentSection === sectionName) return
+      state.currentSection = sectionName
+      renderEditor()
+    })
+    tabsContainer.appendChild(tab)
+  }
+
+  if (state.currentType === 'scoreboardstdname') {
+    createSectionTab('scoreboardstdname')
+
+    const linkBtn = document.createElement('button')
+    linkBtn.type = 'button'
+    linkBtn.className = 'section-tab-link-toggle' + (state.scoreboardStdSectionsLinked ? ' linked' : '')
+    linkBtn.innerHTML = state.scoreboardStdSectionsLinked
+      ? '<i class="fa-solid fa-link" aria-hidden="true"></i>'
+      : '<i class="fa-solid fa-link-slash" aria-hidden="true"></i>'
+    linkBtn.setAttribute('aria-label', state.scoreboardStdSectionsLinked ? 'Linked tabs' : 'Unlinked tabs')
+    linkBtn.title = state.scoreboardStdSectionsLinked
+      ? 'Unlink tabs: each section can be edited independently.'
+      : 'Link tabs: changes in one section are mirrored to the other.'
+    linkBtn.addEventListener('click', () => {
+      state.scoreboardStdSectionsLinked = !state.scoreboardStdSectionsLinked
+      if (state.scoreboardStdSectionsLinked) {
+        const changed = syncLinkedScoreboardSection(state.currentSection)
+        if (changed) {
+          setUnsaved(true)
+          toast('Tabs linked. Current section copied to the other tab.', 'success')
+        } else {
+          toast('Tabs linked.', 'success')
+        }
+      } else {
+        toast('Tabs unlinked.', 'info')
+      }
+      renderEditor()
+    })
+    tabsContainer.appendChild(linkBtn)
+
+    createSectionTab('scoreboardstdnamem')
+  } else {
+    createSectionTab(iniSec)
+  }
 
   if (isRawOnly) {
     state.viewMode = 'raw'
@@ -1213,7 +1301,7 @@ function renderSectionVisual(secName) {
   const hasID = secConfig.hasID !== false
   const hasSuffixColumns = !!secConfig.suffixColumns
   const hideFolder = secName === 'stadiumnetid'
-  const isScoreboardStdName = secName === 'scoreboardstdname'
+  const isScoreboardStdName = !!secConfig.isScoreboardStdName
 
   let cols
   if (hasSuffixColumns) {
@@ -1224,7 +1312,7 @@ function renderSectionVisual(secName) {
     if (hideFolder) {
       cols = `75px ${suffixCols} 1fr 24px`
     } else if (isScoreboardStdName) {
-      cols = '1fr 1fr 100px 24px'
+        cols = '1fr 1fr 24px'
     } else if (hasID) {
       cols = `75px 1fr ${suffixCols} 24px`
     } else {
@@ -1359,10 +1447,7 @@ function renderSectionVisual(secName) {
 
         let suffixParts
         if (secConfig.isScoreboardStdName) {
-          const activeMatch = suffixStr.match(/(,[\d])$/)
-          const activePart = activeMatch ? activeMatch[1].slice(1) : '1'
-          const stadiumNamePart = activeMatch ? suffixStr.slice(0, suffixStr.length - activeMatch[1].length) : suffixStr
-          suffixParts = [stadiumNamePart, activePart]
+          suffixParts = [suffixStr]
         } else {
           suffixParts = suffixStr.split(',').filter((_, i) => i > 0)
         }
@@ -1400,8 +1485,7 @@ function renderSectionVisual(secName) {
             let newSuffix
             if (secConfig.isScoreboardStdName) {
               const stadiumName = suffixInputs[0].value.trim()
-              const active = suffixInputs[1].value.trim()
-              newSuffix = stadiumName + ',' + active
+              newSuffix = stadiumName
             } else {
               const values = suffixInputs.map((inp) => inp.value.trim())
               newSuffix = ',' + values.join(',')
@@ -1500,6 +1584,7 @@ function updateEntryLine(secName, visualIdx, newId, newSuffix, newComment) {
         lines[i] = targetEntry.folder + '=' + suffix
       }
       setUnsaved(true)
+      syncLinkedScoreboardSection(secName)
       break
     }
     dataCount++
@@ -1516,8 +1601,8 @@ function addItemsToSection(typeKey, items) {
   }
 
   const typeConfig = GBD_TYPES[typeKey]
-  const iniSec = typeConfig.iniSection
-  const added = getAddedItems(typeKey)
+  const iniSec = typeKey === 'scoreboardstdname' && isScoreboardStdSection(state.currentSection) ? state.currentSection : typeConfig.iniSection
+  const added = getAddedItems(typeKey, iniSec)
   const toAdd = items.filter((item) => {
     const comparable = getComparableItemName(typeKey, item)
     return !added.has(item) && !added.has(comparable)
@@ -1551,6 +1636,7 @@ function addItemsToSection(typeKey, items) {
   })
 
   state.selectedItems[typeKey].clear()
+  syncLinkedScoreboardSection(iniSec)
   setUnsaved(true)
   renderAll()
   toast('Added ' + toAdd.length + ' item' + (toAdd.length > 1 ? 's' : ''), 'success')
@@ -1584,6 +1670,7 @@ function removeEntry(secName, visualIdx) {
   }
 
   setUnsaved(true)
+  syncLinkedScoreboardSection(secName)
   renderAll()
 }
 
@@ -1777,7 +1864,8 @@ document.getElementById('btn-add-entry').addEventListener('click', () => {
 document.getElementById('btn-add-all').addEventListener('click', () => {
   const typeKey = state.currentType
   const typeConfig = GBD_TYPES[typeKey]
-  if (!confirm(`Add ALL ${typeConfig.name.toLowerCase()} to [${typeConfig.iniSection}]? You can remove unwanted ones after.`)) return
+  const targetSection = typeKey === 'scoreboardstdname' && isScoreboardStdSection(state.currentSection) ? state.currentSection : typeConfig.iniSection
+  if (!confirm(`Add ALL ${typeConfig.name.toLowerCase()} to [${targetSection}]? You can remove unwanted ones after.`)) return
   addItemsToSection(typeKey, [...(state.gbdFolders[typeKey] || [])])
 })
 
@@ -1843,6 +1931,7 @@ function commitRawContent() {
   if (state.rawSection) {
     const lines = content.split('\n')
     state.sections[state.rawSection] = lines.slice(1)
+    syncLinkedScoreboardSection(state.rawSection)
   } else {
     parseIni(content)
   }
@@ -1879,6 +1968,7 @@ rawEditor.addEventListener('input', () => {
     if (state.rawSection) {
       const lines = content.split('\n')
       state.sections[state.rawSection] = lines.slice(1)
+      syncLinkedScoreboardSection(state.rawSection)
     } else {
       parseIni(content)
     }

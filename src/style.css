@@ -900,6 +900,42 @@ header {
   color: var(--accent);
 }
 
+.section-tab-link-toggle {
+  margin: 6px 8px;
+  padding: 5px 10px;
+  min-width: 34px;
+  height: 28px;
+  align-self: center;
+  border-radius: 999px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--text2);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 0.12s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.section-tab-link-toggle i {
+  font-size: 12px;
+}
+
+.section-tab-link-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.section-tab-link-toggle.linked {
+  background: rgba(61, 214, 140, 0.14);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .editor-wrap {
   flex: 1;
   overflow: hidden;
@@ -1079,18 +1115,21 @@ header {
   opacity: 0.6;
 }
 
-.entry-row[data-section="scoreboardstdname"] {
-  grid-template-columns: 1fr 1fr 100px 24px !important;
+.entry-row[data-section="scoreboardstdname"],
+.entry-row[data-section="scoreboardstdnamem"] {
+  grid-template-columns: 1fr 1fr 24px !important;
 }
 
-.entry-row[data-section="scoreboardstdname"] .entry-folder {
+.entry-row[data-section="scoreboardstdname"] .entry-folder,
+.entry-row[data-section="scoreboardstdnamem"] .entry-folder {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.entry-row[data-section="scoreboardstdname"] .entry-suffix-input {
+.entry-row[data-section="scoreboardstdname"] .entry-suffix-input,
+.entry-row[data-section="scoreboardstdnamem"] .entry-suffix-input {
   min-width: 0;
   width: 100%;
 }
