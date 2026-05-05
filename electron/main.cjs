@@ -24,6 +24,24 @@ function createWindow() {
     },
   })
 
+  // Open external links in the default browser instead of inside the app.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      shell.openExternal(url)
+    }
+    return { action: 'deny' }
+  })
+
+  win.webContents.on('will-navigate', (event, url) => {
+    const appUrl = devUrl || `file://${path.join(__dirname, '..', 'dist', 'index.html')}`
+    if (!url.startsWith(appUrl)) {
+      event.preventDefault()
+      if (url.startsWith('http://') || url.startsWith('https://')) {
+        shell.openExternal(url)
+      }
+    }
+  })
+
   if (devUrl) {
     // Retry while Vite server boots up to avoid a blank desktop window.
     const tryLoad = () => {
