@@ -56,7 +56,7 @@ const GBD_TYPES = {
     path: 'FSW/Chants',
     section: 'chantsid',
     iniSection: 'chantsid',
-    defaultSuffix: ',0.12,0.15,0.10,0.05,0.15,0.13',
+    defaultSuffix: ',0.12,0.15,0.10,0.05,0.15,0.13,0.15,8.0,0.35',
     suffixEditable: true,
     suffixPlaceholder: ',vol,win,lose1,lose2,lose3,goal',
     suffixRegex: /^(\d+|\?\?\?)=(.+?)((?:,[\d.]+)+)?\s*(?:;.*)?$/,
@@ -66,8 +66,11 @@ const GBD_TYPES = {
       { label: 'Winning', placeholder: 'e.g. 0.15' },
       { label: 'Losing -1', placeholder: 'e.g. 0.10' },
       { label: 'Losing -2', placeholder: 'e.g. 0.05' },
-      { label: 'Losing -3 (Protest)', placeholder: 'e.g. 0.15' },
+      { label: 'Losing -3', placeholder: 'e.g. 0.15' },
       { label: 'Goal Song', placeholder: 'e.g. 0.13' },
+      { label: 'Silence prob', placeholder: 'e.g. 0.15' },
+      { label: 'Max Silence', placeholder: 'Sec 8.0' },
+      { label: 'Away Crowd', placeholder: 'e.g. 0.35' },
     ],
   },
   stadiumnetname: {
@@ -222,7 +225,7 @@ function syncDbPanelLayout() {
 
   layout.classList.toggle('db-collapsed', state.db.collapsed)
   panel.classList.toggle('collapsed', state.db.collapsed)
-  toggleBtn.textContent = state.db.collapsed ? '◀DB' : '▶'
+  toggleBtn.innerHTML = state.db.collapsed ? '<i class="fa-solid fa-caret-left"></i>DB' : 'Collapse<i class="fa-solid fa-caret-right"></i>'
   toggleBtn.title = state.db.collapsed ? 'Expand panel' : 'Collapse panel'
   toggleBtn.setAttribute('aria-label', toggleBtn.title)
 }
@@ -521,6 +524,238 @@ function getComparableItemName(typeKey, itemName) {
     return normalizeStadiumItemName(itemName)
   }
   return itemName
+}
+
+function sanitizeStadiumPreviewName(folderName) {
+  const cleaned = normalizeStadiumItemName(String(folderName || ''))
+    .trim()
+    .split(/[\\/]/)
+    .filter(Boolean)
+    .pop() || ''
+  return cleaned.replace(/[<>:"/\\|?*]/g, '_').replace(/\.+$/, '')
+}
+
+function isSupportedPreviewImage(file) {
+  if (!file || !file.name) return false
+  return /\.(png|jpe?g)$/i.test(file.name)
+}
+
+function pickStadiumPreviewFile() {
+  return new Promise((resolve) => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.png,.jpg,.jpeg,image/png,image/jpeg'
+    input.style.display = 'none'
+
+    input.addEventListener('change', () => {
+      const file = input.files && input.files.length ? input.files[0] : null
+      input.remove()
+      resolve(file)
+    }, { once: true })
+
+    document.body.appendChild(input)
+    input.click()
+  })
+}
+
+async function getStadiumPreviewDirectoryHandle(rootHandle, create = true) {
+  const stadiumDir = await rootHandle.getDirectoryHandle('StadiumGBD')
+  const renderDir = await stadiumDir.getDirectoryHandle('render', create ? { create: true } : undefined)
+  const thumbnailDir = await renderDir.getDirectoryHandle('thumbnail', create ? { create: true } : undefined)
+  return thumbnailDir.getDirectoryHandle('stadium', create ? { create: true } : undefined)
+}
+
+async function findStadiumPreviewFileName(stadiumFolderName) {
+  if (!state.rootHandle) return ''
+
+  const safeBaseName = sanitizeStadiumPreviewName(stadiumFolderName)
+  if (!safeBaseName) return ''
+
+  try {
+    const stadiumPreviewDir = await getStadiumPreviewDirectoryHandle(state.rootHandle, false)
+    for (const ext of ['.png', '.jpg', '.jpeg']) {
+      const candidateName = safeBaseName + ext
+      try {
+        await stadiumPreviewDir.getFileHandle(candidateName)
+        return candidateName
+      } catch (e) {
+        // try next extension
+      }
+    }
+  } catch (e) {
+    return ''
+  }
+
+  return ''
+}
+
+async function stadiumPreviewExists(stadiumFolderName) {
+  return !!(await findStadiumPreviewFileName(stadiumFolderName))
+}
+
+function setPreviewActionButtonsState(actionsEl, hasPreview) {
+  if (!actionsEl) return
+  const uploadBtn = actionsEl.querySelector('.entry-preview-btn.upload')
+  const changeBtn = actionsEl.querySelector('.entry-preview-btn.change')
+  const openBtn = actionsEl.querySelector('.entry-preview-btn.open')
+  const deleteBtn = actionsEl.querySelector('.entry-preview-btn.delete')
+
+  if (uploadBtn) uploadBtn.style.display = hasPreview ? 'none' : ''
+  if (changeBtn) changeBtn.style.display = hasPreview ? '' : 'none'
+  if (openBtn) openBtn.style.display = hasPreview ? '' : 'none'
+  if (deleteBtn) deleteBtn.style.display = hasPreview ? '' : 'none'
+}
+
+async function updateStadiumPreviewActionsState(actionsEl, stadiumFolderName) {
+  if (!actionsEl) return
+  const exists = await stadiumPreviewExists(stadiumFolderName)
+  setPreviewActionButtonsState(actionsEl, exists)
+}
+
+function setPreviewActionBusy(actionsEl, busy) {
+  if (!actionsEl) return
+  const buttons = actionsEl.querySelectorAll('.entry-preview-btn')
+  buttons.forEach((btn) => {
+    btn.disabled = busy
+  })
+}
+
+async function clearStadiumPreviewVariants(stadiumPreviewDir, safeBaseName) {
+  for (const ext of ['.png', '.jpg', '.jpeg']) {
+    try {
+      await stadiumPreviewDir.removeEntry(safeBaseName + ext)
+    } catch (e) {
+      // ignore missing files
+    }
+  }
+}
+
+async function deleteStadiumPreview(stadiumFolderName) {
+  if (state.currentSection !== 'stadium') {
+    toast('Preview delete is only available in [stadium].', 'error')
+    return false
+  }
+
+  if (!state.rootHandle) {
+    toast('Load the FIFA root folder first.', 'error')
+    return false
+  }
+
+  const rootHandle = await requestHandlePermission(state.rootHandle)
+  if (!rootHandle) {
+    toast('Folder permission is required to delete previews.', 'error')
+    return false
+  }
+
+  const safeBaseName = sanitizeStadiumPreviewName(stadiumFolderName)
+  if (!safeBaseName) {
+    toast('Could not derive a valid stadium filename.', 'error')
+    return false
+  }
+
+  try {
+    const stadiumPreviewDir = await getStadiumPreviewDirectoryHandle(rootHandle, false)
+    const existingFileName = await findStadiumPreviewFileName(stadiumFolderName)
+    if (!existingFileName) {
+      toast('No preview found to delete.', '')
+      return false
+    }
+    await clearStadiumPreviewVariants(stadiumPreviewDir, safeBaseName)
+    toast('Preview deleted: ' + existingFileName, 'success')
+    return true
+  } catch (e) {
+    toast('Could not delete preview: ' + (e?.message || e), 'error')
+    return false
+  }
+}
+
+function getGameRootPathForDesktopActions() {
+  const dbRoot = String(state.db?.gameRootPath || '').trim()
+  if (dbRoot) return dbRoot.replace(/[/\\]+$/, '')
+
+  const rootInput = String(document.getElementById('root-path')?.value || '').trim()
+  if (/^[a-zA-Z]:[\\/]/.test(rootInput) || /^\\\\/.test(rootInput)) {
+    return rootInput.replace(/[/\\]+$/, '')
+  }
+  return ''
+}
+
+async function openStadiumPreviewLocation(stadiumFolderName) {
+  if (!isDesktopApp || !window.electronAPI?.openPath) {
+    toast('Open location is available only in Desktop (Electron).', 'error')
+    return false
+  }
+
+  const gameRoot = getGameRootPathForDesktopActions()
+  if (!gameRoot) {
+    toast('Set the Game root path on the DB panel to open preview location.', 'error')
+    return false
+  }
+
+  const existingFileName = await findStadiumPreviewFileName(stadiumFolderName)
+  if (!existingFileName) {
+    toast('No preview found to open.', '')
+    return false
+  }
+
+  const previewFilePath = gameRoot + '\\StadiumGBD\\render\\thumbnail\\stadium\\' + existingFileName
+  try {
+    await window.electronAPI.openPath(previewFilePath)
+    return true
+  } catch (e) {
+    toast('Could not open preview location: ' + (e?.message || e), 'error')
+    return false
+  }
+}
+
+async function uploadStadiumPreview(stadiumFolderName) {
+  if (state.currentSection !== 'stadium') {
+    toast('Preview upload is only available in [stadium].', 'error')
+    return
+  }
+
+  if (!state.rootHandle) {
+    toast('Load the FIFA root folder first.', 'error')
+    return
+  }
+
+  const rootHandle = await requestHandlePermission(state.rootHandle)
+  if (!rootHandle) {
+    toast('Folder permission is required to save previews.', 'error')
+    return
+  }
+
+  const file = await pickStadiumPreviewFile()
+  if (!file) return
+
+  if (!isSupportedPreviewImage(file)) {
+    toast('Only PNG, JPG or JPEG files are supported.', 'error')
+    return
+  }
+
+    const safeBaseName = sanitizeStadiumPreviewName(stadiumFolderName)
+  if (!safeBaseName) {
+    toast('Could not derive a valid stadium filename.', 'error')
+      return false
+  }
+
+  const extMatch = file.name.match(/\.(png|jpe?g)$/i)
+  const ext = extMatch ? extMatch[0].toLowerCase() : '.png'
+  const targetFileName = safeBaseName + ext
+
+  try {
+    const stadiumPreviewDir = await getStadiumPreviewDirectoryHandle(rootHandle)
+    await clearStadiumPreviewVariants(stadiumPreviewDir, safeBaseName)
+    const fileHandle = await stadiumPreviewDir.getFileHandle(targetFileName, { create: true })
+    const writable = await fileHandle.createWritable()
+    await writable.write(await file.arrayBuffer())
+    await writable.close()
+    toast('Preview saved: ' + targetFileName, 'success')
+    return true
+  } catch (e) {
+    toast('Could not save preview: ' + (e?.message || e), 'error')
+    return false
+  }
 }
 
 // ============================================================
@@ -1302,6 +1537,7 @@ function renderSectionVisual(secName) {
   const hasSuffixColumns = !!secConfig.suffixColumns
   const hideFolder = secName === 'stadiumnetid'
   const isScoreboardStdName = !!secConfig.isScoreboardStdName
+  const isStadiumSection = secName === 'stadium'
 
   let cols
   if (hasSuffixColumns) {
@@ -1314,16 +1550,24 @@ function renderSectionVisual(secName) {
     } else if (isScoreboardStdName) {
         cols = '1fr 1fr 24px'
     } else if (hasID) {
-      cols = `75px 1fr ${suffixCols} 24px`
+      cols = isStadiumSection ? `75px 1fr ${suffixCols} 170px 24px` : `75px 1fr ${suffixCols} 24px`
     } else {
       cols = `1fr ${suffixCols} 24px`
     }
   } else {
-    cols = hasID ? (secConfig.suffixEditable ? '70px 1fr 160px 24px' : '70px 1fr 24px') : secConfig.suffixEditable ? '1fr 160px 24px' : '1fr 24px'
+    if (hasID) {
+      if (secConfig.suffixEditable) {
+        cols = isStadiumSection ? '70px 1fr 160px 170px 24px' : '70px 1fr 160px 24px'
+      } else {
+        cols = isStadiumSection ? '70px 1fr 170px 24px' : '70px 1fr 24px'
+      }
+    } else {
+      cols = secConfig.suffixEditable ? '1fr 160px 24px' : '1fr 24px'
+    }
   }
 
   const header = document.createElement('div')
-  header.style.cssText = `display:grid;grid-template-columns:${cols};gap:6px;padding:4px 0 8px;border-bottom:1px solid var(--border);margin-bottom:4px;`
+  header.style.cssText = `display:grid;grid-template-columns:${cols};gap:6px;padding:4px 15px 8px;border-bottom:1px solid var(--border);margin-bottom:4px;position:sticky;top:0;background:var(--bg2);z-index:1;font-weight:bold;`
 
   let headerHTML = ''
   if (hasID) {
@@ -1344,6 +1588,9 @@ function renderSectionVisual(secName) {
   }
   if (hideFolder) {
     headerHTML += '<span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;">Comment</span>'
+  }
+  if (isStadiumSection) {
+    headerHTML += '<span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;">Preview</span>'
   }
   headerHTML += '<span></span>'
 
@@ -1523,6 +1770,66 @@ function renderSectionVisual(secName) {
       removeEntry(secName, myVisualIdx)
     })
 
+    let previewActionsEl = null
+    if (isStadiumSection) {
+      previewActionsEl = document.createElement('div')
+      previewActionsEl.className = 'entry-preview-actions'
+
+      const uploadBtn = document.createElement('button')
+      uploadBtn.className = 'entry-preview-btn upload'
+      uploadBtn.title = 'Upload stadium preview (PNG/JPG/JPEG)'
+      uploadBtn.innerHTML = '<i class="fa-solid fa-upload" aria-hidden="true"></i>'
+
+      const changeBtn = document.createElement('button')
+      changeBtn.className = 'entry-preview-btn change'
+      changeBtn.title = 'Change stadium preview (PNG/JPG/JPEG)'
+      changeBtn.innerHTML = '<i class="fa-solid fa-rotate" aria-hidden="true"></i>'
+
+      const deleteBtn = document.createElement('button')
+      deleteBtn.className = 'entry-preview-btn delete'
+      deleteBtn.title = 'Delete stadium preview'
+      deleteBtn.innerHTML = '<i class="fa-solid fa-trash" aria-hidden="true"></i>'
+
+      const openBtn = document.createElement('button')
+      openBtn.className = 'entry-preview-btn open'
+      openBtn.title = 'Open preview location'
+      openBtn.innerHTML = '<i class="fa-solid fa-folder-open" aria-hidden="true"></i>'
+
+      uploadBtn.addEventListener('click', async () => {
+        setPreviewActionBusy(previewActionsEl, true)
+        const saved = await uploadStadiumPreview(entry.folder)
+        setPreviewActionBusy(previewActionsEl, false)
+        if (saved) await updateStadiumPreviewActionsState(previewActionsEl, entry.folder)
+      })
+
+      changeBtn.addEventListener('click', async () => {
+        setPreviewActionBusy(previewActionsEl, true)
+        const saved = await uploadStadiumPreview(entry.folder)
+        setPreviewActionBusy(previewActionsEl, false)
+        if (saved) await updateStadiumPreviewActionsState(previewActionsEl, entry.folder)
+      })
+
+      deleteBtn.addEventListener('click', async () => {
+        setPreviewActionBusy(previewActionsEl, true)
+        const deleted = await deleteStadiumPreview(entry.folder)
+        setPreviewActionBusy(previewActionsEl, false)
+        if (deleted) await updateStadiumPreviewActionsState(previewActionsEl, entry.folder)
+      })
+
+      openBtn.addEventListener('click', async () => {
+        setPreviewActionBusy(previewActionsEl, true)
+        await openStadiumPreviewLocation(entry.folder)
+        setPreviewActionBusy(previewActionsEl, false)
+      })
+
+      previewActionsEl.appendChild(uploadBtn)
+      previewActionsEl.appendChild(changeBtn)
+      previewActionsEl.appendChild(openBtn)
+      previewActionsEl.appendChild(deleteBtn)
+      setPreviewActionButtonsState(previewActionsEl, false)
+      updateStadiumPreviewActionsState(previewActionsEl, entry.folder)
+    }
+
     if (hideFolder) {
       commentInput = document.createElement('input')
       commentInput.type = 'text'
@@ -1543,6 +1850,7 @@ function renderSectionVisual(secName) {
       row.appendChild(suffixInput)
     }
     if (commentInput) row.appendChild(commentInput)
+    if (previewActionsEl) row.appendChild(previewActionsEl)
     row.appendChild(delBtn)
     editorEl.appendChild(row)
   })

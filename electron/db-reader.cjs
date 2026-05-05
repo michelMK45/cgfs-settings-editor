@@ -13,6 +13,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Ensure JSON is written as UTF-8 so Node can decode accented names correctly.
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[Console]::OutputEncoding = $utf8NoBom
+$OutputEncoding = $utf8NoBom
+
 if (!(Test-Path -LiteralPath $DllPath)) { throw "FifaLibrary14.dll not found at: $DllPath" }
 if (!(Test-Path -LiteralPath $DbPath)) { throw "Database file not found at: $DbPath" }
 if (!(Test-Path -LiteralPath $XmlPath)) { throw "Metadata XML not found at: $XmlPath" }

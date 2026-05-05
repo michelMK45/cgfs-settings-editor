@@ -1,4 +1,5 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
+const fs = require('node:fs')
 const path = require('node:path')
 const { readTeamsFromGameRoot } = require('./db-reader.cjs')
 
@@ -53,6 +54,29 @@ ipcMain.handle('app:pickGameRoot', async () => {
   const selectedPath = result.filePaths[0]
   dbState.gameRootPath = selectedPath
   return { canceled: false, gameRootPath: selectedPath }
+})
+
+ipcMain.handle('app:openPath', async (_event, maybeTargetPath) => {
+  if (typeof maybeTargetPath !== 'string' || !maybeTargetPath.trim()) {
+    throw new Error('Invalid path to open.')
+  }
+
+  const targetPath = path.normalize(maybeTargetPath.trim())
+  if (!fs.existsSync(targetPath)) {
+    throw new Error('Path not found: ' + targetPath)
+  }
+
+  const stats = fs.lstatSync(targetPath)
+  if (stats.isDirectory()) {
+    const openErr = await shell.openPath(targetPath)
+    if (openErr) {
+      throw new Error(openErr)
+    }
+  } else {
+    shell.showItemInFolder(targetPath)
+  }
+
+  return { ok: true, targetPath }
 })
 
 ipcMain.handle('db:setGameRoot', async (_event, gameRootPath) => {
