@@ -16,6 +16,7 @@
   "build": {
     "appId": "com.michelmk.cgfssettingseditor",
     "productName": "CGFS Settings Editor",
+    "afterPack": "./electron/afterPack.cjs",
     "directories": {
       "output": "release"
     },
@@ -47,6 +48,7 @@
     "concurrently": "^9.2.1",
     "electron": "^41.3.0",
     "electron-builder": "^26.8.1",
+    "rcedit": "^5.0.2",
     "vite": "^8.0.10"
   }
 }
