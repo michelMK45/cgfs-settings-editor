@@ -1,6 +1,6 @@
 {
   "name": "cgfs-settings-editor",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "main": "electron/main.cjs",
   "type": "module",
@@ -43,6 +43,9 @@
       ],
       "artifactName": "${productName}-Portable-${version}.${ext}"
     }
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.10"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

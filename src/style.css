@@ -1453,3 +1453,272 @@ a {
   outline: 1px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* ============================================================
+   GAMEPLAYCAM PANEL
+   ============================================================ */
+.gameplay-cam-panel {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gameplay-cam-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gameplay-cam-title {
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.gameplay-cam-desc {
+  font-size: 11px;
+  color: var(--text2);
+  line-height: 1.5;
+}
+
+.gameplay-cam-desc code {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--accent);
+}
+
+.gameplay-cam-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.gameplay-cam-source-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gameplay-cam-source-label {
+  font-size: 11px;
+  color: var(--text2);
+  white-space: nowrap;
+}
+
+.gameplay-cam-source-name {
+  font-size: 11px;
+  color: var(--text3);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 3px 8px;
+}
+
+.gameplay-cam-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gameplay-cam-search {
+  flex: 1;
+  max-width: 320px;
+  height: 28px;
+  padding: 0 10px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: var(--sans);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.gameplay-cam-search:focus {
+  border-color: var(--accent);
+}
+
+.gameplay-cam-search::placeholder {
+  color: var(--text3);
+}
+
+.gameplay-cam-count {
+  font-size: 11px;
+  color: var(--text3);
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.gameplay-cam-no-results {
+  padding: 18px 12px;
+  font-size: 12px;
+  color: var(--text3);
+  text-align: center;
+}
+
+.gameplay-cam-table {
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.gameplay-cam-table::-webkit-scrollbar {
+  width: 4px;
+}
+
+.gameplay-cam-table::-webkit-scrollbar-thumb {
+  background: var(--border2);
+  border-radius: 2px;
+}
+
+.gameplay-cam-row {
+  display: grid;
+  grid-template-columns: 1fr 56px 56px 210px;
+  gap: 8px;
+  align-items: center;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.gameplay-cam-row:last-child {
+  border-bottom: none;
+}
+
+.gameplay-cam-row:not(.gameplay-cam-thead):hover {
+  background: var(--bg3);
+}
+
+.gameplay-cam-thead {
+  background: var(--bg2);
+  font-size: 10px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.gameplay-cam-stadium-name {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gameplay-archive-badge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 2px;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.gameplay-archive-badge.zip {
+  background: #1a3a5a;
+  color: #7ab3e0;
+  border: 1px solid #2a5080;
+}
+
+.gameplay-archive-badge.rar {
+  background: #3a1a2a;
+  color: #e07ab3;
+  border: 1px solid #5a2a3a;
+}
+
+.gameplay-status-cell {
+  display: flex;
+  justify-content: center;
+}
+
+.gameplay-status-badge {
+  font-size: 12px;
+  font-weight: 700;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+
+.gameplay-status-badge.yes {
+  background: var(--green2);
+  color: var(--green);
+  border: 1px solid var(--green2);
+}
+
+.gameplay-status-badge.no {
+  background: #2a1a1a;
+  color: var(--red);
+  border: 1px solid #3a2a2a;
+}
+
+.gameplay-status-badge.unknown {
+  background: var(--bg3);
+  color: var(--text3);
+  border: 1px solid var(--border);
+}
+
+.gameplay-status-badge.scanning {
+  background: var(--bg3);
+  color: var(--text2);
+  border: 1px solid var(--border);
+  animation: gpulse 1s ease-in-out infinite;
+}
+
+.gameplay-status-badge.error {
+  background: #2a2a1a;
+  color: var(--amber);
+  border: 1px solid #3a3a2a;
+  cursor: help;
+}
+
+@keyframes gpulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.gameplay-cam-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.gameplay-cam-add-btn {
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+.gameplay-cam-remove-btn {
+  font-size: 11px;
+  padding: 3px 7px;
+  color: var(--red) !important;
+  border-color: var(--red) !important;
+}
+
+.gameplay-cam-remove-btn:hover {
+  background: rgba(224, 82, 82, 0.1) !important;
+}

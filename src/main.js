@@ -152,6 +152,9 @@ const state = {
     loading: false,
     gameRootPath: '',
   },
+  gameplayCamStatus: {},
+  gameplayCamSources: { '176': null, '261': null },
+  gameplayCamSearch: '',
 }
 
 const isDesktopApp = !!window.electronAPI?.isDesktop
@@ -1065,6 +1068,10 @@ function entriesToLines(entries, secName = null) {
 // ============================================================
 function renderAll() {
   renderGBDTypeTabs()
+  if (state.currentType === 'gameplaycam') {
+    renderGameplayCamPanel()
+    return
+  }
   renderItemList(state.currentType)
   renderEditor()
   updateCounts()
@@ -1115,6 +1122,25 @@ function renderGBDTypeTabs() {
     renderAll()
   })
   container.appendChild(modTab)
+
+  const camTab = document.createElement('button')
+  camTab.className = 'btn' + (state.currentType === 'gameplaycam' ? ' active' : '')
+  camTab.style.display = 'flex'
+  camTab.style.alignItems = 'center'
+  camTab.style.gap = '4px'
+  if (state.currentType === 'gameplaycam') {
+    camTab.style.color = 'var(--accent)'
+    camTab.style.borderColor = 'var(--accent)'
+  }
+  const stadiumCount = state.gbdFolders.stadium?.length || 0
+  camTab.innerHTML = `GameplayCam <span style="font-size:9px;color:var(--text3);">(${stadiumCount})</span>`
+  camTab.addEventListener('click', () => {
+    state.currentType = 'gameplaycam'
+    state.viewMode = 'visual'
+    renderAll()
+    scanAllGameplayCam()
+  })
+  container.appendChild(camTab)
 }
 
 function updateEditorHint(typeKey) {
@@ -1177,7 +1203,7 @@ function getAddedItems(typeKey, sectionOverride = null) {
 }
 
 function renderItemList(typeKey) {
-  if (typeKey === 'modules') return
+  if (typeKey === 'modules' || typeKey === 'gameplaycam') return
   const typeConfig = GBD_TYPES[typeKey]
   const items = state.gbdFolders[typeKey] || []
   const added = getAddedItems(typeKey)
@@ -2362,4 +2388,535 @@ document.getElementById('btn-clear-suggestion').addEventListener('click', () => 
 
 if (document.readyState !== 'loading') {
   initIndexedDB().then(showLastPathSuggestion)
+}
+
+// ============================================================
+// GAMEPLAYCAM PANEL
+// ============================================================
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function pickGameplayFile() {
+  return new Promise((resolve) => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.dat'
+    input.style.display = 'none'
+    input.addEventListener('change', () => {
+      const file = input.files && input.files.length ? input.files[0] : null
+      input.remove()
+      resolve(file)
+    }, { once: true })
+    document.body.appendChild(input)
+    input.click()
+  })
+}
+
+function validateGameplayFileName(file, type) {
+  const expected = `bcgameplay_${type}.dat`
+  if (file.name.toLowerCase() !== expected) {
+    toast(`Wrong file: expected "${expected}" but got "${file.name}". Select the correct file.`, 'error')
+    return false
+  }
+  return true
+}
+
+async function pickGameplaySourceFile(type) {
+  const file = await pickGameplayFile()
+  if (!file) return
+  if (!validateGameplayFileName(file, type)) return
+  state.gameplayCamSources[type] = file
+  renderGameplayCamPanel()
+  toast(`Source ${type} set: ${file.name}`, 'success')
+}
+
+async function scanAllGameplayCam() {
+  const stadiums = state.gbdFolders.stadium || []
+  state.gameplayCamStatus = {}
+  for (const s of stadiums) {
+    state.gameplayCamStatus[s] = { scanning: true }
+  }
+  renderGameplayCamPanel()
+
+  let stadiumGBDHandle = null
+  if (state.rootHandle) {
+    try { stadiumGBDHandle = await state.rootHandle.getDirectoryHandle('StadiumGBD') } catch (_) {}
+  }
+
+  for (const stadiumName of stadiums) {
+    if (/\.(zip|rar)$/i.test(stadiumName)) continue
+    if (!stadiumGBDHandle) {
+      state.gameplayCamStatus[stadiumName] = { has176: null, has261: null }
+      continue
+    }
+    try {
+      let stadDir
+      try { stadDir = await stadiumGBDHandle.getDirectoryHandle(stadiumName) }
+      catch (_) { state.gameplayCamStatus[stadiumName] = { has176: false, has261: false }; continue }
+
+      let camDir
+      try { camDir = await stadDir.getDirectoryHandle('GameplayCamGBD') }
+      catch (_) { state.gameplayCamStatus[stadiumName] = { has176: false, has261: false }; continue }
+
+      let has176 = false, has261 = false
+      try { await camDir.getFileHandle('bcgameplay_176.dat'); has176 = true } catch (_) {}
+      try { await camDir.getFileHandle('bcgameplay_261.dat'); has261 = true } catch (_) {}
+      state.gameplayCamStatus[stadiumName] = { has176, has261 }
+    } catch (e) {
+      state.gameplayCamStatus[stadiumName] = { has176: null, has261: null, error: e.message }
+    }
+  }
+
+  const archiveStadiums = stadiums.filter((s) => /\.(zip|rar)$/i.test(s))
+  if (archiveStadiums.length > 0) {
+    if (!isDesktopApp || !window.electronAPI?.gameplay) {
+      for (const s of archiveStadiums) {
+        state.gameplayCamStatus[s] = { has176: null, has261: null, error: 'Desktop app required for archives' }
+      }
+    } else {
+      const gameRoot = getGameRootPathForDesktopActions()
+      for (const s of archiveStadiums) {
+        if (!gameRoot) {
+          state.gameplayCamStatus[s] = { has176: null, has261: null, error: 'Set game root path to scan archives' }
+          continue
+        }
+        const archivePath = gameRoot + '\\StadiumGBD\\' + s
+        try {
+          const result = /\.zip$/i.test(s)
+            ? await window.electronAPI.gameplay.scanZip(archivePath)
+            : await window.electronAPI.gameplay.scanRar(archivePath)
+          state.gameplayCamStatus[s] = result.noTool
+            ? { has176: null, has261: null, error: '7-Zip required for RAR. Install from 7-zip.org.' }
+            : { has176: result.has176, has261: result.has261 }
+        } catch (e) {
+          state.gameplayCamStatus[s] = { has176: null, has261: null, error: e.message }
+        }
+      }
+    }
+  }
+
+  renderGameplayCamPanel()
+}
+
+async function addGameplayFile(stadiumName, type, sourceBuffer) {
+  const isZip = /\.zip$/i.test(stadiumName)
+  const isRar = /\.rar$/i.test(stadiumName)
+
+  if (!isZip && !isRar) {
+    if (!state.rootHandle) { toast('Load the FIFA root folder first.', 'error'); return false }
+    const rootHandle = await requestHandlePermission(state.rootHandle)
+    if (!rootHandle) { toast('Folder permission required.', 'error'); return false }
+    try {
+      const stadiumGBDDir = await rootHandle.getDirectoryHandle('StadiumGBD')
+      const stadDir = await stadiumGBDDir.getDirectoryHandle(stadiumName)
+      const camDir = await stadDir.getDirectoryHandle('GameplayCamGBD', { create: true })
+      const fh = await camDir.getFileHandle(`bcgameplay_${type}.dat`, { create: true })
+      const w = await fh.createWritable()
+      await w.write(sourceBuffer)
+      await w.close()
+      return true
+    } catch (e) {
+      toast('Write failed: ' + e.message, 'error')
+      return false
+    }
+  }
+
+  if (!isDesktopApp || !window.electronAPI?.gameplay) {
+    toast('Archive support requires the Desktop (Electron) app.', 'error')
+    return false
+  }
+  const gameRoot = getGameRootPathForDesktopActions()
+  if (!gameRoot) {
+    toast('Set the Game root path in the DB panel to modify archives.', 'error')
+    return false
+  }
+
+  const archivePath = gameRoot + '\\StadiumGBD\\' + stadiumName
+  try {
+    if (isZip) {
+      await window.electronAPI.gameplay.writeToZip(archivePath, type, Array.from(new Uint8Array(sourceBuffer)))
+      return true
+    }
+    const newBaseName = stadiumName.replace(/\.rar$/i, '.zip')
+    if (!confirm(`Adding files to RAR requires converting to ZIP.\n"${stadiumName}" → "${newBaseName}"\nsettings.ini will be updated. Proceed?`)) return false
+    const result = await window.electronAPI.gameplay.writeToRar(archivePath, type, Array.from(new Uint8Array(sourceBuffer)))
+    if (result.convertedToZip) applyRarToZipRename(stadiumName, result.newName)
+    return true
+  } catch (e) {
+    toast('Failed: ' + e.message, 'error')
+    return false
+  }
+}
+
+async function removeGameplayFile(stadiumName, type) {
+  const isZip = /\.zip$/i.test(stadiumName)
+  const isRar = /\.rar$/i.test(stadiumName)
+
+  if (!isZip && !isRar) {
+    if (!state.rootHandle) return false
+    const rootHandle = await requestHandlePermission(state.rootHandle)
+    if (!rootHandle) return false
+    try {
+      const stadiumGBDDir = await rootHandle.getDirectoryHandle('StadiumGBD')
+      const stadDir = await stadiumGBDDir.getDirectoryHandle(stadiumName)
+      let camDir
+      try { camDir = await stadDir.getDirectoryHandle('GameplayCamGBD') }
+      catch (_) { return true }
+      try { await camDir.removeEntry(`bcgameplay_${type}.dat`) } catch (_) {}
+      return true
+    } catch (e) {
+      toast('Remove failed: ' + e.message, 'error')
+      return false
+    }
+  }
+
+  if (!isDesktopApp || !window.electronAPI?.gameplay) {
+    toast('Archive support requires the Desktop (Electron) app.', 'error')
+    return false
+  }
+  const gameRoot = getGameRootPathForDesktopActions()
+  if (!gameRoot) {
+    toast('Set the Game root path in the DB panel to modify archives.', 'error')
+    return false
+  }
+
+  const archivePath = gameRoot + '\\StadiumGBD\\' + stadiumName
+  try {
+    if (isZip) {
+      await window.electronAPI.gameplay.removeFromZip(archivePath, type)
+      return true
+    }
+    const newBaseName = stadiumName.replace(/\.rar$/i, '.zip')
+    if (!confirm(`Removing files from RAR requires converting to ZIP.\n"${stadiumName}" → "${newBaseName}"\nProceed?`)) return false
+    const result = await window.electronAPI.gameplay.removeFromRar(archivePath, type)
+    if (result.convertedToZip) applyRarToZipRename(stadiumName, result.newName)
+    return true
+  } catch (e) {
+    toast('Failed: ' + e.message, 'error')
+    return false
+  }
+}
+
+function applyRarToZipRename(oldName, newName) {
+  const idx = state.gbdFolders.stadium?.indexOf(oldName)
+  if (idx !== -1 && idx != null) state.gbdFolders.stadium[idx] = newName
+  const re = new RegExp(escapeRegex(oldName), 'gi')
+  for (const sec of Object.keys(state.sections)) {
+    state.sections[sec] = state.sections[sec].map((l) => l.replace(re, newName))
+  }
+  const prev = state.gameplayCamStatus[oldName]
+  if (prev) {
+    state.gameplayCamStatus[newName] = { ...prev }
+    delete state.gameplayCamStatus[oldName]
+  }
+  setUnsaved(true)
+  toast(`Converted ${oldName} → ${newName}. Save settings.ini to confirm.`, 'info')
+}
+
+async function applySourceToAll(type) {
+  const source = state.gameplayCamSources[type]
+  if (!source) { toast(`Set a source file for ${type} first using Browse….`, 'error'); return }
+
+  const stadiums = state.gbdFolders.stadium || []
+  const missing = stadiums.filter((s) => {
+    const st = state.gameplayCamStatus[s]
+    return !st || !st[`has${type}`]
+  })
+
+  if (missing.length === 0) { toast(`All stadiums already have bcgameplay_${type}.dat`, 'success'); return }
+  if (!confirm(`Apply bcgameplay_${type}.dat to ${missing.length} stadium(s) that are missing it?`)) return
+
+  let ok = 0
+  for (const stadiumName of missing) {
+    const buf = await source.arrayBuffer()
+    const success = await addGameplayFile(stadiumName, type, buf)
+    if (success) {
+      if (!state.gameplayCamStatus[stadiumName]) state.gameplayCamStatus[stadiumName] = {}
+      state.gameplayCamStatus[stadiumName][`has${type}`] = true
+      ok++
+    }
+  }
+  renderGameplayCamPanel()
+  toast(`Applied bcgameplay_${type}.dat to ${ok}/${missing.length} stadiums`, ok === missing.length ? 'success' : 'info')
+}
+
+function buildGameplayStatusCell(status, type) {
+  const cell = document.createElement('span')
+  cell.className = 'gameplay-status-cell'
+  const badge = document.createElement('span')
+
+  if (!status || status.scanning) {
+    badge.className = 'gameplay-status-badge ' + (status?.scanning ? 'scanning' : 'unknown')
+    badge.textContent = status?.scanning ? '…' : '–'
+  } else if (status.error && status[`has${type}`] == null) {
+    badge.className = 'gameplay-status-badge error'
+    badge.title = status.error
+    badge.textContent = '?'
+  } else {
+    const has = !!status[`has${type}`]
+    badge.className = 'gameplay-status-badge ' + (has ? 'yes' : 'no')
+    badge.textContent = has ? '✓' : '✗'
+  }
+  cell.appendChild(badge)
+  return cell
+}
+
+function renderGameplayCamPanel() {
+  document.getElementById('btn-add-selected').style.display = 'none'
+  document.getElementById('btn-add-all').style.display = 'none'
+  document.getElementById('btn-add-entry').style.display = 'none'
+  document.getElementById('btn-sort').style.display = 'none'
+  document.getElementById('btn-visual-view').style.display = 'none'
+  document.getElementById('btn-raw-view').style.display = 'none'
+  document.getElementById('btn-full-raw').style.display = 'none'
+
+  const layout = document.querySelector('.main-layout')
+  if (layout) layout.classList.add('left-hidden')
+
+  document.getElementById('section-tabs').innerHTML = ''
+  document.getElementById('raw-editor').classList.remove('visible')
+
+  const editorEl = document.getElementById('item-editor')
+  editorEl.style.display = 'flex'
+  editorEl.style.flexDirection = 'column'
+  editorEl.style.overflow = 'auto'
+  editorEl.innerHTML = ''
+
+  const stadiums = state.gbdFolders.stadium || []
+
+  const panel = document.createElement('div')
+  panel.className = 'gameplay-cam-panel'
+
+  // Header
+  const header = document.createElement('div')
+  header.className = 'gameplay-cam-header'
+  header.innerHTML = `
+    <div class="gameplay-cam-title">GameplayCam Files</div>
+    <div class="gameplay-cam-desc">
+      Manages <code>bcgameplay_176.dat</code> and <code>bcgameplay_261.dat</code>
+      inside each stadium's <code>GameplayCamGBD/</code> subfolder.
+      ZIP archives are fully supported. RAR archives are converted to ZIP when modified.
+    </div>
+  `
+  panel.appendChild(header)
+
+  // Toolbar
+  const toolbar = document.createElement('div')
+  toolbar.className = 'gameplay-cam-toolbar'
+
+  const scanBtn = document.createElement('button')
+  scanBtn.className = 'btn'
+  scanBtn.textContent = 'Scan / Refresh'
+  scanBtn.addEventListener('click', () => scanAllGameplayCam())
+  toolbar.appendChild(scanBtn)
+
+  const sep1 = document.createElement('div')
+  sep1.className = 'toolbar-sep'
+  toolbar.appendChild(sep1)
+
+  for (const type of ['176', '261']) {
+    const grp = document.createElement('div')
+    grp.className = 'gameplay-cam-source-group'
+
+    const lbl = document.createElement('span')
+    lbl.className = 'gameplay-cam-source-label'
+    lbl.textContent = `Source ${type}:`
+    grp.appendChild(lbl)
+
+    const nm = document.createElement('span')
+    nm.className = 'gameplay-cam-source-name'
+    const srcFile = state.gameplayCamSources[type]
+    nm.textContent = srcFile ? srcFile.name : 'none set'
+    nm.title = srcFile ? srcFile.name : ''
+    grp.appendChild(nm)
+
+    const browseBtn = document.createElement('button')
+    browseBtn.className = 'btn'
+    browseBtn.textContent = 'Browse…'
+    browseBtn.addEventListener('click', () => pickGameplaySourceFile(type))
+    grp.appendChild(browseBtn)
+
+    toolbar.appendChild(grp)
+  }
+
+  const sep2 = document.createElement('div')
+  sep2.className = 'toolbar-sep'
+  toolbar.appendChild(sep2)
+
+  for (const type of ['176', '261']) {
+    const applyBtn = document.createElement('button')
+    applyBtn.className = 'btn'
+    applyBtn.textContent = `Apply ${type} to all missing`
+    applyBtn.addEventListener('click', () => applySourceToAll(type))
+    toolbar.appendChild(applyBtn)
+  }
+
+  panel.appendChild(toolbar)
+
+  // Search bar
+  const searchRow = document.createElement('div')
+  searchRow.className = 'gameplay-cam-search-row'
+
+  const searchInput = document.createElement('input')
+  searchInput.type = 'text'
+  searchInput.className = 'gameplay-cam-search'
+  searchInput.placeholder = 'Search stadiums…'
+  searchInput.value = state.gameplayCamSearch
+  searchRow.appendChild(searchInput)
+
+  const countEl = document.createElement('span')
+  countEl.id = 'gameplay-cam-count'
+  countEl.className = 'gameplay-cam-count'
+  searchRow.appendChild(countEl)
+
+  panel.appendChild(searchRow)
+
+  const initQuery = state.gameplayCamSearch.trim().toLowerCase()
+
+  // Table
+  if (stadiums.length === 0) {
+    countEl.textContent = '0 stadiums'
+    const empty = document.createElement('div')
+    empty.className = 'empty-state'
+    empty.innerHTML = '<p>No stadiums loaded. Load your FIFA root folder first.</p>'
+    panel.appendChild(empty)
+  } else {
+    const table = document.createElement('div')
+    table.className = 'gameplay-cam-table'
+
+    const thead = document.createElement('div')
+    thead.className = 'gameplay-cam-row gameplay-cam-thead'
+    for (const label of ['Stadium', '176', '261', 'Actions']) {
+      const cell = document.createElement('span')
+      cell.textContent = label
+      thead.appendChild(cell)
+    }
+    table.appendChild(thead)
+
+    const noMatchEl = document.createElement('div')
+    noMatchEl.className = 'gameplay-cam-no-results'
+    noMatchEl.style.display = 'none'
+    table.appendChild(noMatchEl)
+
+    let visibleCount = 0
+    for (const stadiumName of stadiums) {
+      const isZip = /\.zip$/i.test(stadiumName)
+      const isRar = /\.rar$/i.test(stadiumName)
+      const status = state.gameplayCamStatus[stadiumName]
+
+      const normalizedName = normalizeStadiumItemName(stadiumName)
+      const row = document.createElement('div')
+      row.className = 'gameplay-cam-row'
+      row.dataset.stadium = normalizedName.toLowerCase()
+      if (initQuery && !normalizedName.toLowerCase().includes(initQuery)) {
+        row.style.display = 'none'
+      } else {
+        visibleCount++
+      }
+
+      // Name
+      const nameCell = document.createElement('span')
+      nameCell.className = 'gameplay-cam-stadium-name'
+      nameCell.title = stadiumName
+      const nameText = document.createElement('span')
+      nameText.textContent = normalizedName
+      nameCell.appendChild(nameText)
+      if (isZip) {
+        const badge = document.createElement('span')
+        badge.className = 'gameplay-archive-badge zip'
+        badge.textContent = 'ZIP'
+        nameCell.appendChild(badge)
+      } else if (isRar) {
+        const badge = document.createElement('span')
+        badge.className = 'gameplay-archive-badge rar'
+        badge.textContent = 'RAR'
+        nameCell.appendChild(badge)
+      }
+      row.appendChild(nameCell)
+
+      row.appendChild(buildGameplayStatusCell(status, '176'))
+      row.appendChild(buildGameplayStatusCell(status, '261'))
+
+      // Actions
+      const actionsCell = document.createElement('span')
+      actionsCell.className = 'gameplay-cam-actions'
+
+      for (const type of ['176', '261']) {
+        const addBtn = document.createElement('button')
+        addBtn.className = 'btn gameplay-cam-add-btn'
+        addBtn.textContent = `+${type}`
+        addBtn.title = `Add / replace bcgameplay_${type}.dat`
+        addBtn.addEventListener('click', async () => {
+          let buf
+          if (state.gameplayCamSources[type]) {
+            buf = await state.gameplayCamSources[type].arrayBuffer()
+          } else {
+            const f = await pickGameplayFile()
+            if (!f) return
+            if (!validateGameplayFileName(f, type)) return
+            buf = await f.arrayBuffer()
+          }
+          const ok = await addGameplayFile(stadiumName, type, buf)
+          if (ok) {
+            if (!state.gameplayCamStatus[stadiumName]) state.gameplayCamStatus[stadiumName] = {}
+            state.gameplayCamStatus[stadiumName][`has${type}`] = true
+            renderGameplayCamPanel()
+            toast(`bcgameplay_${type}.dat added to ${normalizeStadiumItemName(stadiumName)}`, 'success')
+          }
+        })
+        actionsCell.appendChild(addBtn)
+      }
+
+      const removeBtn = document.createElement('button')
+      removeBtn.className = 'btn gameplay-cam-remove-btn'
+      removeBtn.textContent = '✕'
+      removeBtn.title = 'Remove bcgameplay_176.dat and bcgameplay_261.dat'
+      removeBtn.addEventListener('click', async () => {
+        if (!confirm(`Remove GameplayCamGBD files from "${normalizeStadiumItemName(stadiumName)}"?`)) return
+        const ok176 = await removeGameplayFile(stadiumName, '176')
+        const ok261 = await removeGameplayFile(stadiumName, '261')
+        if (ok176 || ok261) {
+          const st = state.gameplayCamStatus[stadiumName] || {}
+          if (ok176) st.has176 = false
+          if (ok261) st.has261 = false
+          state.gameplayCamStatus[stadiumName] = st
+          renderGameplayCamPanel()
+          toast(`GameplayCamGBD files removed from ${normalizeStadiumItemName(stadiumName)}`, 'success')
+        }
+      })
+      actionsCell.appendChild(removeBtn)
+
+      row.appendChild(actionsCell)
+      table.appendChild(row)
+    }
+
+    noMatchEl.textContent = `No stadiums match "${state.gameplayCamSearch}"`
+    noMatchEl.style.display = (initQuery && visibleCount === 0) ? '' : 'none'
+    countEl.textContent = initQuery
+      ? `${visibleCount} / ${stadiums.length} stadiums`
+      : `${stadiums.length} stadiums`
+
+    searchInput.addEventListener('input', (e) => {
+      state.gameplayCamSearch = e.target.value
+      const q = e.target.value.trim().toLowerCase()
+      const allRows = table.querySelectorAll('.gameplay-cam-row:not(.gameplay-cam-thead)')
+      let cnt = 0
+      allRows.forEach((r) => {
+        const name = r.dataset.stadium || ''
+        const match = !q || name.includes(q)
+        r.style.display = match ? '' : 'none'
+        if (match) cnt++
+      })
+      noMatchEl.textContent = `No stadiums match "${e.target.value}"`
+      noMatchEl.style.display = (q && cnt === 0) ? '' : 'none'
+      countEl.textContent = q
+        ? `${cnt} / ${stadiums.length} stadiums`
+        : `${stadiums.length} stadiums`
+    })
+
+    panel.appendChild(table)
+  }
+
+  editorEl.appendChild(panel)
 }

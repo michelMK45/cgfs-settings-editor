@@ -1,6 +1,9 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
+const os = require('node:os')
+const { execFile } = require('node:child_process')
+const AdmZip = require('adm-zip')
 const { readTeamsFromGameRoot } = require('./db-reader.cjs')
 
 const devUrl = process.env.ELECTRON_START_URL
@@ -135,6 +138,163 @@ ipcMain.handle('db:getTeams', async (_event, maybeGameRootPath) => {
   }
 })
 
+// ============================================================
+// GAMEPLAYCAM — ZIP / RAR helpers
+// ============================================================
+const GAMEPLAY_CAM_DIR = 'GameplayCamGBD'
+const GAMEPLAY_FILES = { '176': 'bcgameplay_176.dat', '261': 'bcgameplay_261.dat' }
+
+function find7zip() {
+  const bundled = app.isPackaged
+    ? path.join(process.resourcesPath, 'bin', '7za.exe')
+    : path.join(__dirname, '..', 'bin', '7za.exe')
+  const candidates = [
+    bundled,
+    'C:\\Program Files\\7-Zip\\7za.exe',
+    'C:\\Program Files (x86)\\7-Zip\\7za.exe',
+  ]
+  return candidates.find((p) => fs.existsSync(p)) || null
+}
+
+function execFileAsync(bin, args) {
+  return new Promise((resolve, reject) => {
+    execFile(bin, args, { maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (err) reject(new Error(stderr || err.message))
+      else resolve(stdout)
+    })
+  })
+}
+
+// Returns the common root prefix inside a ZIP (e.g. "ARG - Boca Juniors/") or "" if none.
+// Archives often wrap everything inside a single top-level folder.
+function detectZipInternalRoot(zip) {
+  const roots = new Set()
+  for (const entry of zip.getEntries()) {
+    const normalized = entry.entryName.replace(/\\/g, '/')
+    const firstSlash = normalized.indexOf('/')
+    if (firstSlash > 0) roots.add(normalized.slice(0, firstSlash + 1))
+  }
+  // Only treat it as a wrapper folder when every entry shares the same root
+  if (roots.size === 1) return roots.values().next().value
+  return ''
+}
+
+// After extracting a RAR/ZIP to tmpDir, find the actual content root.
+// If there is exactly one subdirectory (and nothing else), that dir is the internal root.
+function getExtractionRoot(tmpDir) {
+  const entries = fs.readdirSync(tmpDir)
+  if (entries.length === 1) {
+    const candidate = path.join(tmpDir, entries[0])
+    if (fs.statSync(candidate).isDirectory()) return candidate
+  }
+  return tmpDir
+}
+
+ipcMain.handle('gameplay:scanZip', async (_event, zipPath) => {
+  try {
+    const zip = new AdmZip(zipPath)
+    const names = zip.getEntries().map((e) => e.entryName.replace(/\\/g, '/').toLowerCase())
+    const suffix176 = (GAMEPLAY_CAM_DIR + '/' + GAMEPLAY_FILES['176']).toLowerCase()
+    const suffix261 = (GAMEPLAY_CAM_DIR + '/' + GAMEPLAY_FILES['261']).toLowerCase()
+    return {
+      has176: names.some((n) => n.endsWith(suffix176)),
+      has261: names.some((n) => n.endsWith(suffix261)),
+    }
+  } catch (e) {
+    return { has176: false, has261: false, error: e.message }
+  }
+})
+
+ipcMain.handle('gameplay:writeToZip', async (_event, zipPath, fileType, fileBufferArray) => {
+  const fileName = GAMEPLAY_FILES[fileType]
+  if (!fileName) throw new Error('Unknown file type: ' + fileType)
+  const zip = new AdmZip(zipPath)
+  const internalRoot = detectZipInternalRoot(zip)
+  const entryName = internalRoot + GAMEPLAY_CAM_DIR + '/' + fileName
+  // Remove any existing entry for this file (regardless of prior path)
+  const suffix = (GAMEPLAY_CAM_DIR + '/' + fileName).toLowerCase()
+  const existing = zip.getEntries().find((e) => e.entryName.replace(/\\/g, '/').toLowerCase().endsWith(suffix))
+  if (existing) zip.deleteFile(existing.entryName)
+  zip.addFile(entryName, Buffer.from(fileBufferArray))
+  zip.writeZip(zipPath)
+  return { ok: true }
+})
+
+ipcMain.handle('gameplay:removeFromZip', async (_event, zipPath, fileType) => {
+  const fileName = GAMEPLAY_FILES[fileType]
+  if (!fileName) throw new Error('Unknown file type: ' + fileType)
+  const zip = new AdmZip(zipPath)
+  const suffix = (GAMEPLAY_CAM_DIR + '/' + fileName).toLowerCase()
+  const existing = zip.getEntries().find((e) => e.entryName.replace(/\\/g, '/').toLowerCase().endsWith(suffix))
+  if (existing) zip.deleteFile(existing.entryName)
+  zip.writeZip(zipPath)
+  return { ok: true }
+})
+
+ipcMain.handle('gameplay:scanRar', async (_event, rarPath) => {
+  const sz = find7zip()
+  if (!sz) return { has176: false, has261: false, noTool: true }
+  try {
+    const stdout = await execFileAsync(sz, ['l', rarPath])
+    // Normalize path separators so we catch both / and \
+    const normalized = stdout.toLowerCase().replace(/\\/g, '/')
+    const suffix176 = (GAMEPLAY_CAM_DIR + '/' + GAMEPLAY_FILES['176']).toLowerCase()
+    const suffix261 = (GAMEPLAY_CAM_DIR + '/' + GAMEPLAY_FILES['261']).toLowerCase()
+    return {
+      has176: normalized.includes(suffix176),
+      has261: normalized.includes(suffix261),
+    }
+  } catch (e) {
+    return { has176: false, has261: false, error: e.message }
+  }
+})
+
+async function rarToZip(rarPath, modifications) {
+  const sz = find7zip()
+  if (!sz) throw new Error('7-Zip not found. Install 7-Zip (7-zip.org) to enable RAR support.')
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cgfs-gcam-'))
+  try {
+    await execFileAsync(sz, ['x', rarPath, '-o' + tmpDir, '-y'])
+
+    // Respect internal folder structure (e.g. "ARG - Boca Juniors - La Bombonera/")
+    const contentRoot = getExtractionRoot(tmpDir)
+    const camDir = path.join(contentRoot, GAMEPLAY_CAM_DIR)
+    if (!fs.existsSync(camDir)) fs.mkdirSync(camDir, { recursive: true })
+
+    for (const [fileType, buf] of Object.entries(modifications.add || {})) {
+      fs.writeFileSync(path.join(camDir, GAMEPLAY_FILES[fileType]), Buffer.from(buf))
+    }
+    for (const fileType of modifications.remove || []) {
+      const target = path.join(camDir, GAMEPLAY_FILES[fileType])
+      if (fs.existsSync(target)) fs.unlinkSync(target)
+    }
+
+    const rarDir = path.dirname(rarPath)
+    const rarBase = path.basename(rarPath, '.rar')
+    const zipPath = path.join(rarDir, rarBase + '.zip')
+    if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath)
+
+    await execFileAsync(sz, ['a', '-tzip', zipPath, path.join(tmpDir, '*'), '-y'])
+    fs.unlinkSync(rarPath)
+
+    return { newName: rarBase + '.zip' }
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch (_) {}
+  }
+}
+
+ipcMain.handle('gameplay:writeToRar', async (_event, rarPath, fileType, fileBufferArray) => {
+  const result = await rarToZip(rarPath, { add: { [fileType]: fileBufferArray } })
+  return { ok: true, convertedToZip: true, newName: result.newName }
+})
+
+ipcMain.handle('gameplay:removeFromRar', async (_event, rarPath, fileType) => {
+  const result = await rarToZip(rarPath, { remove: [fileType] })
+  return { ok: true, convertedToZip: true, newName: result.newName }
+})
+
+// ============================================================
 app.whenReady().then(() => {
   createWindow()
 
