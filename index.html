@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,13 +8,11 @@
   <link
     href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@400;600;700&display=swap"
     rel="stylesheet">
-  <link
-    rel="stylesheet"
-    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
     integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg=="
-    crossorigin="anonymous"
-    referrerpolicy="no-referrer">
+    crossorigin="anonymous" referrerpolicy="no-referrer">
 </head>
+
 <body>
 
   <div id="app">
@@ -40,9 +39,11 @@
           <div class="suggestion-text">Previous session found - one click to reconnect:</div>
           <div class="suggestion-path" id="suggestion-path-text"></div>
           <div class="suggestion-buttons">
-            <button class="btn suggestion-btn load" id="btn-load-suggestion" title="Reconnect to previous folder">Reconnect</button>
+            <button class="btn suggestion-btn load" id="btn-load-suggestion"
+              title="Reconnect to previous folder">Reconnect</button>
             <button class="btn suggestion-btn" id="btn-new-path" title="Browse for new path">Browse new path</button>
-            <button class="btn suggestion-btn" id="btn-clear-suggestion" title="Forget this path" style="color: var(--text3);">X</button>
+            <button class="btn suggestion-btn" id="btn-clear-suggestion" title="Forget this path"
+              style="color: var(--text3);">X</button>
           </div>
         </div>
 
@@ -79,7 +80,7 @@
 
           </div>
         </div>
-        
+
         <button class="btn primary" id="load-btn">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <path d="M7 1v8M3 5l4 4 4-4M1 10v1a2 2 0 002 2h8a2 2 0 002-2v-1" stroke="currentColor" stroke-width="1.5"
@@ -95,21 +96,21 @@
       <!-- TOOLBAR -->
       <div class="toolbar">
         <button class="btn" id="btn-save">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M1 1h7.5L11 3.5V11H1V1z" stroke="currentColor" stroke-width="1.2" />
-            <path d="M3.5 1v3h5V1M3 7h6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
-          </svg>
+          <i class="fa-solid fa-floppy-disk"></i>
           Save
           <span class="unsaved-dot" id="unsaved-dot"></span>
         </button>
-        <button class="btn" id="db-pick-root" title="Select game root folder">Game Root Folder</button>
+        <button class="btn" id="db-pick-root" title="Select game root folder">
+          <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
+          Game Root Folder
+        </button>
         <button class="btn" id="btn-add-selected">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-          </svg>
+          <i class="fa-regular fa-square-plus"></i>
           Add Selected
         </button>
-        <button class="btn" id="btn-add-all">Add All</button>
+        <button class="btn" id="btn-add-all">
+          <i class="fa-solid fa-square-plus"></i>
+          Add All</button>
         <button class="btn" id="btn-add-entry" style="display:none;">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
@@ -118,12 +119,12 @@
         </button>
         <div class="toolbar-sep"></div>
         <span class="toolbar-label">View:</span>
-        <button class="btn" id="btn-visual-view"
-          style="color: var(--accent); border-color: var(--accent);">Visual</button>
-        <button class="btn" id="btn-raw-view">Raw Section</button>
-        <button class="btn" id="btn-full-raw">Full INI</button>
+        <button class="btn" id="btn-visual-view" style="color: var(--accent); border-color: var(--accent);"><i
+            class="fa-solid fa-eye"></i>Visual</button>
+        <button class="btn" id="btn-raw-view"><i class="fa-solid fa-eye-slash"></i>Raw Section</button>
+        <button class="btn" id="btn-full-raw"><i class="fa-solid fa-code"></i>Full INI</button>
         <div class="toolbar-sep"></div>
-        <button class="btn danger" id="btn-reset-paths">Change Paths</button>
+        <button class="btn danger" id="btn-reset-paths"><i class="fa-solid fa-folder-tree"></i>Change Paths</button>
       </div>
 
       <!-- GBD TYPE TABS -->
@@ -168,7 +169,7 @@
               <div class="editor-hint" id="editor-hint">
                 Select an item on the left to add it to the section.
               </div>
-              <button class="btn" id="btn-sort">Sort by ID</button>
+              <button class="btn" id="btn-sort"><i class="fa-solid fa-arrow-down-wide-short"></i>Sort by ID</button>
             </div>
 
             <!-- Visual editor -->
@@ -187,15 +188,15 @@
         <!-- DB TEAMS PANEL -->
         <aside class="panel-db" id="panel-db">
           <div class="panel-db-header">
-            <button class="btn db-toggle-icon" id="db-toggle" title="Collapse panel" aria-label="Collapse panel">◀</button>
+            <button class="btn db-toggle-icon" id="db-toggle" title="Collapse panel"
+              aria-label="Collapse panel">◀</button>
             <div class="panel-db-title-wrap">
-              <div class="panel-db-title">DB Teams</div>
+              <div class="panel-db-title"><i class="fa-solid fa-database"></i> DB Teams</div>
               <span class="count-badge" id="db-teams-count">0</span>
             </div>
             <div class="panel-db-actions">
-              
-              <button class="btn" id="db-pick-root" title="Select game root folder">Game Root Folder</button>
-              <button class="btn" id="db-refresh" title="Reload teams list">Refresh</button>
+              <button class="btn" id="db-refresh" title="Reload teams list"><i class="fa-solid fa-rotate"
+                  aria-hidden="true"></i>Refresh</button>
             </div>
           </div>
 
@@ -243,4 +244,5 @@
 
   <script type="module" src="/src/main.js"></script>
 </body>
+
 </html>
