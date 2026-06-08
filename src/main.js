@@ -155,6 +155,7 @@ const state = {
   gameplayCamStatus: {},
   gameplayCamSources: { '176': null, '261': null },
   gameplayCamSearch: '',
+  sectionOrder: [],
 }
 
 const isDesktopApp = !!window.electronAPI?.isDesktop
@@ -913,6 +914,7 @@ document.getElementById('btn-reset-paths').addEventListener('click', () => {
 function parseIni(content) {
   const lines = content.split('\n')
   const sections = {}
+  const sectionOrder = []
   let current = '__header__'
   sections[current] = []
 
@@ -920,12 +922,16 @@ function parseIni(content) {
     const m = line.match(/^\[(.+?)\]/)
     if (m) {
       current = m[1].toLowerCase()
-      if (!sections[current]) sections[current] = []
+      if (!sections[current]) {
+        sections[current] = []
+        sectionOrder.push(current)
+      }
     } else {
       sections[current].push(line)
     }
   }
   state.sections = sections
+  state.sectionOrder = sectionOrder
 }
 
 function buildIni() {
@@ -933,9 +939,11 @@ function buildIni() {
   if (state.sections.__header__) {
     out += state.sections.__header__.join('\n')
   }
-  const sectionOrder = ['scoreboard', 'scoreboardstdname', 'scoreboardstdnamem', 'tvlogo', 'movies', 'teammovies', 'stadiumnetid', 'stadiumnetname', 'chantsid', 'modules', 'stadium']
+  const order = state.sectionOrder.length
+    ? state.sectionOrder
+    : ['scoreboard', 'scoreboardstdname', 'scoreboardstdnamem', 'tvlogo', 'movies', 'teammovies', 'stadiumnetid', 'stadiumnetname', 'chantsid', 'modules', 'stadium']
   const written = new Set()
-  for (const sec of sectionOrder) {
+  for (const sec of order) {
     if (state.sections[sec] !== undefined) {
       out += '\n[' + getSectionName(sec) + ']\n'
       out += state.sections[sec].join('\n')
@@ -2044,6 +2052,10 @@ function renderModulesEditor() {
     return
   }
 
+  const splitLayout = document.createElement('div')
+  splitLayout.className = 'modules-split-layout'
+
+  // --- Left: modules toggles ---
   const wrap = document.createElement('div')
   wrap.className = 'modules-wrap'
 
@@ -2105,8 +2117,105 @@ function renderModulesEditor() {
     grid.appendChild(card)
   })
 
-  editorEl.appendChild(wrap)
+  // --- Right: block ordering ---
+  const orderWrap = document.createElement('div')
+  orderWrap.className = 'block-order-wrap'
+
+  const orderHeader = document.createElement('div')
+  orderHeader.className = 'block-order-header'
+  orderHeader.innerHTML = `
+    <div class="block-order-title">Block Order</div>
+    <div class="block-order-subtitle">Drag to reorder sections in settings.ini</div>
+  `
+  orderWrap.appendChild(orderHeader)
+
+  const orderList = document.createElement('div')
+  orderList.className = 'block-order-list'
+  renderBlockOrderList(orderList)
+  orderWrap.appendChild(orderList)
+
+  splitLayout.appendChild(wrap)
+  splitLayout.appendChild(orderWrap)
+  editorEl.appendChild(splitLayout)
+
   document.getElementById('footer-entries').textContent = count + ' modules'
+}
+
+function renderBlockOrderList(listEl) {
+  listEl.innerHTML = ''
+  let dragSrc = null
+
+  state.sectionOrder.forEach((sec) => {
+    const item = document.createElement('div')
+    item.className = 'block-order-item'
+    item.draggable = true
+    item.dataset.sec = sec
+
+    item.innerHTML = `
+      <span class="block-order-handle" title="Drag to reorder">
+        <svg width="12" height="16" viewBox="0 0 12 16" fill="none">
+          <circle cx="3" cy="2" r="1.5" fill="currentColor"/>
+          <circle cx="9" cy="2" r="1.5" fill="currentColor"/>
+          <circle cx="3" cy="8" r="1.5" fill="currentColor"/>
+          <circle cx="9" cy="8" r="1.5" fill="currentColor"/>
+          <circle cx="3" cy="14" r="1.5" fill="currentColor"/>
+          <circle cx="9" cy="14" r="1.5" fill="currentColor"/>
+        </svg>
+      </span>
+      <span class="block-order-name">[${getSectionName(sec)}]</span>
+    `
+
+    item.addEventListener('dragstart', (e) => {
+      dragSrc = item
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData('text/plain', sec)
+      setTimeout(() => item.classList.add('dragging'), 0)
+    })
+
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging')
+      listEl.querySelectorAll('.block-order-item').forEach((el) => el.classList.remove('drag-over-top', 'drag-over-bottom'))
+    })
+
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault()
+      if (!dragSrc || dragSrc === item) return
+      e.dataTransfer.dropEffect = 'move'
+      const rect = item.getBoundingClientRect()
+      const mid = rect.top + rect.height / 2
+      listEl.querySelectorAll('.block-order-item').forEach((el) => el.classList.remove('drag-over-top', 'drag-over-bottom'))
+      item.classList.add(e.clientY < mid ? 'drag-over-top' : 'drag-over-bottom')
+    })
+
+    item.addEventListener('dragleave', (e) => {
+      if (!item.contains(e.relatedTarget)) {
+        item.classList.remove('drag-over-top', 'drag-over-bottom')
+      }
+    })
+
+    item.addEventListener('drop', (e) => {
+      e.preventDefault()
+      item.classList.remove('drag-over-top', 'drag-over-bottom')
+      if (!dragSrc || dragSrc === item) return
+
+      const fromSec = dragSrc.dataset.sec
+      const toSec = item.dataset.sec
+      const fromIdx = state.sectionOrder.indexOf(fromSec)
+      let toIdx = state.sectionOrder.indexOf(toSec)
+      if (fromIdx === -1 || toIdx === -1) return
+
+      const rect = item.getBoundingClientRect()
+      const insertAfter = e.clientY >= rect.top + rect.height / 2
+      state.sectionOrder.splice(fromIdx, 1)
+      toIdx = state.sectionOrder.indexOf(toSec)
+      state.sectionOrder.splice(insertAfter ? toIdx + 1 : toIdx, 0, fromSec)
+
+      setUnsaved(true)
+      renderBlockOrderList(listEl)
+    })
+
+    listEl.appendChild(item)
+  })
 }
 
 function renderRaw(section = null) {
