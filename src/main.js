@@ -62,15 +62,15 @@ const GBD_TYPES = {
     suffixRegex: /^(\d+|\?\?\?)=(.+?)((?:,[\d.]+)+)?\s*(?:;.*)?$/,
     hint: 'Chants IDs - double-click a folder on the left to insert it in raw mode.',
     suffixColumns: [
-      { label: 'Default', placeholder: 'e.g. 0.12' },
-      { label: 'Winning', placeholder: 'e.g. 0.15' },
-      { label: 'Losing -1', placeholder: 'e.g. 0.10' },
-      { label: 'Losing -2', placeholder: 'e.g. 0.05' },
-      { label: 'Losing -3', placeholder: 'e.g. 0.15' },
-      { label: 'Goal Song', placeholder: 'e.g. 0.13' },
-      { label: 'Silence prob', placeholder: 'e.g. 0.15' },
-      { label: 'Max Silence', placeholder: 'Sec 8.0' },
-      { label: 'Away Crowd', placeholder: 'e.g. 0.35' },
+      { label: 'Default', placeholder: 'e.g. 0.12', type: 'slider', min: 0, max: 1, step: 0.01 },
+      { label: 'Winning', placeholder: 'e.g. 0.15', type: 'slider', min: 0, max: 1, step: 0.01 },
+      { label: 'Losing -1', placeholder: 'e.g. 0.10', type: 'slider', min: 0, max: 1, step: 0.01 },
+      { label: 'Losing -2', placeholder: 'e.g. 0.05', type: 'slider', min: 0, max: 1, step: 0.01 },
+      { label: 'Losing -3', placeholder: 'e.g. 0.15', type: 'slider', min: 0, max: 1, step: 0.01 },
+      { label: 'Goal Song', placeholder: 'e.g. 0.13', type: 'slider', min: 0, max: 1, step: 0.01 },
+      { label: 'Silence prob', placeholder: 'e.g. 1', type: 'slider', min: 0, max: 1, step: 0.1 },
+      { label: 'Max Silence', placeholder: 'Sec 8.0', type: 'slider', min: 0, max: 30, step: 0.1 },
+      { label: 'Away Crowd', placeholder: 'e.g. 0', type: 'slider', min: 0, max: 1, step: 0.1 },
     ],
   },
   stadiumnetname: {
@@ -1720,6 +1720,7 @@ function renderSectionVisual(secName) {
 
     let suffixInput = null
     let suffixInputs = []
+    let suffixElements = []
     let commentInput = null
 
     if (secConfig.suffixEditable) {
@@ -1735,6 +1736,7 @@ function renderSectionVisual(secName) {
 
         secConfig.suffixColumns.forEach((col, idx) => {
           let control
+          let domEl
 
           if (col.type === 'spinner') {
             control = document.createElement('input')
@@ -1744,6 +1746,7 @@ function renderSectionVisual(secName) {
             control.min = col.min
             control.max = col.max
             control.placeholder = col.placeholder
+            domEl = control
           } else if (col.type === 'select') {
             control = document.createElement('select')
             control.className = 'entry-suffix-input'
@@ -1754,12 +1757,64 @@ function renderSectionVisual(secName) {
               control.appendChild(option)
             })
             control.value = suffixParts[idx] || ''
+            domEl = control
+          } else if (col.type === 'slider') {
+            control = document.createElement('input')
+            control.type = 'text'
+            control.className = 'entry-suffix-input'
+            control.value = suffixParts[idx] || ''
+            control.placeholder = col.placeholder
+
+            const sliderWrap = document.createElement('div')
+            sliderWrap.className = 'suffix-slider-wrap'
+            sliderWrap.appendChild(control)
+
+            const popup = document.createElement('div')
+            popup.className = 'suffix-slider-popup'
+
+            const rangeInput = document.createElement('input')
+            rangeInput.type = 'range'
+            rangeInput.className = 'suffix-slider-range'
+            rangeInput.min = col.min ?? 0
+            rangeInput.max = col.max ?? 1
+            rangeInput.step = col.step ?? 0.01
+            rangeInput.value = parseFloat(control.value) || (col.min ?? 0)
+
+            const valLabel = document.createElement('span')
+            valLabel.className = 'suffix-slider-val'
+            valLabel.textContent = rangeInput.value
+
+            popup.appendChild(rangeInput)
+            popup.appendChild(valLabel)
+            sliderWrap.appendChild(popup)
+
+            rangeInput.addEventListener('input', () => {
+              control.value = rangeInput.value
+              valLabel.textContent = rangeInput.value
+              control.dispatchEvent(new Event('change', { bubbles: true }))
+            })
+
+            control.addEventListener('input', () => {
+              const v = parseFloat(control.value)
+              if (!isNaN(v)) {
+                rangeInput.value = Math.min(col.max ?? 1, Math.max(col.min ?? 0, v))
+                valLabel.textContent = rangeInput.value
+              }
+            })
+
+            sliderWrap.addEventListener('focusin', () => sliderWrap.classList.add('active'))
+            sliderWrap.addEventListener('focusout', (e) => {
+              if (!sliderWrap.contains(e.relatedTarget)) sliderWrap.classList.remove('active')
+            })
+
+            domEl = sliderWrap
           } else {
             control = document.createElement('input')
             control.type = 'text'
             control.className = 'entry-suffix-input'
             control.value = suffixParts[idx] || ''
             control.placeholder = col.placeholder
+            domEl = control
           }
 
           control.addEventListener('change', () => {
@@ -1779,6 +1834,7 @@ function renderSectionVisual(secName) {
             }
           })
           suffixInputs.push(control)
+          suffixElements.push(domEl)
         })
       } else {
         suffixInput = document.createElement('input')
@@ -1879,7 +1935,7 @@ function renderSectionVisual(secName) {
     if (idInput) row.appendChild(idInput)
     if (folderEl) row.appendChild(folderEl)
     if (hasSuffixColumns && suffixInputs.length) {
-      suffixInputs.forEach((input) => row.appendChild(input))
+      suffixElements.forEach((el) => row.appendChild(el))
     } else if (suffixInput) {
       row.appendChild(suffixInput)
     }

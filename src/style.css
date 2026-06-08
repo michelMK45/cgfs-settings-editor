@@ -1133,6 +1133,52 @@ header {
   width: 100%;
 }
 
+/* ---- suffix slider ---- */
+.suffix-slider-wrap {
+  position: relative;
+}
+
+.suffix-slider-wrap .entry-suffix-input {
+  width: 100% !important;
+  box-sizing: border-box;
+}
+
+.suffix-slider-popup {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 6px 8px;
+  min-width: 120px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+  flex-direction: column;
+  gap: 4px;
+  pointer-events: auto;
+}
+
+.suffix-slider-wrap.active .suffix-slider-popup {
+  display: flex;
+}
+
+.suffix-slider-range {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.suffix-slider-val {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--accent);
+  text-align: center;
+  line-height: 1;
+}
+
 .entry-del {
   background: transparent;
   border: none;
