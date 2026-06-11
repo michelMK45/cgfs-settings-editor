@@ -28,6 +28,7 @@ const GBD_TYPES = {
     suffixEditable: false,
     suffixPlaceholder: '',
     suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
+    subSections: ['derbymatch', 'hometeamscoreboard'],
   },
   movies: {
     name: 'Movies',
@@ -38,6 +39,7 @@ const GBD_TYPES = {
     suffixEditable: false,
     suffixPlaceholder: '',
     suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
+    subSections: ['teammovies'],
   },
   tvlogo: {
     name: 'TV Logos',
@@ -48,6 +50,7 @@ const GBD_TYPES = {
     suffixEditable: false,
     suffixPlaceholder: '',
     suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
+    subSections: ['hometeamtvlogo'],
   },
   chantsid: {
     name: 'Chants IDs',
@@ -129,6 +132,51 @@ const GBD_TYPES = {
       { label: 'Stadium Name', placeholder: 'Display name for scoreboard' },
     ],
   },
+  hometeamscoreboard: {
+    isSubSection: true,
+    name: 'Home Team Scoreboards',
+    tabLabel: 'By Home Team',
+    path: 'ScoreBoardGBD',
+    section: 'hometeamscoreboard',
+    iniSection: 'hometeamscoreboard',
+    defaultSuffix: '',
+    suffixEditable: false,
+    suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
+  },
+  derbymatch: {
+    isSubSection: true,
+    name: 'Derby Match Scoreboards',
+    tabLabel: 'Derby Match',
+    path: 'ScoreBoardGBD',
+    section: 'derbymatch',
+    iniSection: 'derbymatch',
+    defaultSuffix: '',
+    suffixEditable: false,
+    suffixRegex: /^(\d+vs\d+|\?\?\?vs\?\?\?)=(.+?)\s*(?:;.*)?$/,
+    isDerbyMatch: true,
+  },
+  hometeamtvlogo: {
+    isSubSection: true,
+    name: 'Home Team TV Logos',
+    tabLabel: 'By Home Team',
+    path: 'TVLogoGBD',
+    section: 'hometeamtvlogo',
+    iniSection: 'hometeamtvlogo',
+    defaultSuffix: '',
+    suffixEditable: false,
+    suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
+  },
+  teammovies: {
+    isSubSection: true,
+    name: 'Team Movies',
+    tabLabel: 'By Team',
+    path: 'MoviesGBD',
+    section: 'teammovies',
+    iniSection: 'teammovies',
+    defaultSuffix: '',
+    suffixEditable: false,
+    suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
+  },
 }
 
 const state = {
@@ -167,7 +215,8 @@ function isScoreboardStdSection(secName) {
 
 function getTypeSections(typeKey) {
   if (typeKey === 'scoreboardstdname') return SCOREBOARD_STD_SECTIONS
-  return [GBD_TYPES[typeKey].iniSection]
+  const cfg = GBD_TYPES[typeKey]
+  return cfg?.subSections ? [cfg.iniSection, ...cfg.subSections] : [cfg.iniSection]
 }
 
 function getDefaultSectionForType(typeKey) {
@@ -941,7 +990,7 @@ function buildIni() {
   }
   const order = state.sectionOrder.length
     ? state.sectionOrder
-    : ['scoreboard', 'scoreboardstdname', 'scoreboardstdnamem', 'tvlogo', 'movies', 'teammovies', 'stadiumnetid', 'stadiumnetname', 'chantsid', 'modules', 'stadium']
+    : ['scoreboard', 'hometeamscoreboard', 'derbymatch', 'scoreboardstdname', 'scoreboardstdnamem', 'tvlogo', 'hometeamtvlogo', 'movies', 'teammovies', 'stadiumnetid', 'stadiumnetname', 'chantsid', 'modules', 'stadium']
   const written = new Set()
   for (const sec of order) {
     if (state.sections[sec] !== undefined) {
@@ -971,6 +1020,9 @@ function getSectionName(sec) {
     stadium: 'stadium',
     teammovies: 'TeamMovies',
     modules: 'modules',
+    hometeamscoreboard: 'hometeamscoreboard',
+    derbymatch: 'derbymatch',
+    hometeamtvlogo: 'hometeamtvlogo',
   }
   return map[sec] || sec
 }
@@ -1090,6 +1142,7 @@ function renderGBDTypeTabs() {
   container.innerHTML = ''
 
   for (const [typeKey, typeConfig] of Object.entries(GBD_TYPES)) {
+    if (typeConfig.isSubSection) continue
     const tab = document.createElement('button')
     tab.className = 'btn' + (typeKey === state.currentType ? ' active' : '')
     tab.style.display = 'flex'
@@ -1155,10 +1208,10 @@ function updateEditorHint(typeKey) {
   const cfg = GBD_TYPES[typeKey]
   const hints = {
     stadium: 'Add stadium folders here. Set the Team ID for each entry.',
-    scoreboard: 'Add scoreboard folders. Map to scoreboard IDs.',
+    scoreboard: 'Add scoreboard folders. Map to scoreboard IDs. Use sub-tabs for home team and derby match overrides.',
     scoreboardstdname: 'Scoreboard stadium names: use [scoreboardstdname] and [scoreboardstdnamem]. Enable link to mirror edits in both sections.',
-    movies: 'Add movie folders for intro/outro sequences.',
-    tvlogo: 'Add TV logo folders.',
+    movies: 'Add movie folders for intro/outro sequences. Use the By Team sub-tab for team-specific overrides.',
+    tvlogo: 'Add TV logo folders. Use the By Home Team sub-tab for home team overrides.',
     stadiumnetid: 'Editor for stadium net IDs. Format: stadiumID=downDeep,highDeep,rig,shape',
     chantsid: cfg?.hint || 'Raw editor for chant/goal song IDs.',
     stadiumnetname: cfg?.hint || 'Raw editor for stadium net names.',
@@ -1214,7 +1267,8 @@ function renderItemList(typeKey) {
   if (typeKey === 'modules' || typeKey === 'gameplaycam') return
   const typeConfig = GBD_TYPES[typeKey]
   const items = state.gbdFolders[typeKey] || []
-  const added = getAddedItems(typeKey)
+  const isInSubSection = typeConfig?.subSections?.includes(state.currentSection)
+  const added = getAddedItems(typeKey, isInSubSection ? state.currentSection : null)
 
   if (typeKey === 'chantsid' || typeKey === 'stadiumnetid') {
     renderItemListTree(typeKey, items, added)
@@ -1468,9 +1522,11 @@ function renderEditor() {
   document.getElementById('btn-raw-view').style.display = isRawOnly ? 'none' : ''
   document.getElementById('btn-full-raw').style.display = isRawOnly ? 'none' : ''
   document.getElementById('btn-add-selected').style.display = hasPanel ? '' : 'none'
+  document.getElementById('toolbar-sep-adding-selected').style.display = hasPanel ? '' : 'none'
   document.getElementById('btn-add-all').style.display = hasPanel ? '' : 'none'
   document.getElementById('btn-add-entry').style.display = hidePanel ? '' : 'none'
-  const hideSortBtn = isRawOnly || state.currentType === 'stadiumnetname' || state.currentType === 'scoreboardstdname'
+  const isInSubSection = typeConfig?.subSections?.includes(state.currentSection)
+  const hideSortBtn = isRawOnly || state.currentType === 'stadiumnetname' || state.currentType === 'scoreboardstdname' || isInSubSection
   document.getElementById('btn-sort').style.display = hideSortBtn ? 'none' : ''
   const layout = document.querySelector('.main-layout')
   if (layout) {
@@ -1479,12 +1535,13 @@ function renderEditor() {
 
   const tabsContainer = document.getElementById('section-tabs')
   tabsContainer.innerHTML = ''
-  const createSectionTab = (sectionName) => {
+  const createSectionTab = (sectionName, labelOverride) => {
     const tab = document.createElement('div')
     tab.className = 'section-tab' + (sectionName === state.currentSection ? ' active' : '')
     tab.dataset.section = sectionName
     const count = parseSection(sectionName).filter((e) => e.type === 'entry').length
-    tab.innerHTML = `[${sectionName}] <span class="tab-count">${count}</span>`
+    const label = labelOverride || `[${getSectionName(sectionName)}]`
+    tab.innerHTML = `${label} <span class="tab-count">${count}</span>`
     tab.addEventListener('click', () => {
       if (state.currentSection === sectionName) return
       state.currentSection = sectionName
@@ -1524,6 +1581,11 @@ function renderEditor() {
     tabsContainer.appendChild(linkBtn)
 
     createSectionTab('scoreboardstdnamem')
+  } else if (typeConfig?.subSections?.length) {
+    createSectionTab(typeConfig.iniSection)
+    for (const subSec of typeConfig.subSections) {
+      createSectionTab(subSec)
+    }
   } else {
     createSectionTab(iniSec)
   }
@@ -1644,12 +1706,12 @@ function renderSectionVisual(secName) {
 
     let idInput = null
     if (hasID) {
-      const idHasValue = entry.id && entry.id !== '???'
+      const idHasValue = entry.id && entry.id !== '???' && entry.id !== '???vs???'
       idInput = document.createElement('input')
       idInput.type = 'text'
       idInput.className = 'entry-id ' + (idHasValue ? 'has-id' : 'no-id')
       idInput.value = idHasValue ? entry.id : ''
-      idInput.placeholder = 'ID'
+      idInput.placeholder = secConfig.isDerbyMatch ? 'homeID vs awayID' : 'ID'
 
       const updateIdClass = () => {
         idInput.className = 'entry-id ' + (idInput.value.trim() ? 'has-id' : 'no-id')
@@ -1963,7 +2025,7 @@ function updateEntryLine(secName, visualIdx, newId, newSuffix, newComment) {
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim()
     if (!trimmed || trimmed.startsWith(';') || trimmed.startsWith('#') || !trimmed.includes('=')) continue
-    if (hasID && !trimmed.startsWith('???') && !trimmed.match(/^\d+=/)) continue
+    if (hasID && !trimmed.startsWith('???') && !trimmed.match(/^\d+(vs\d+)?=/)) continue
 
     if (dataCount === visualIdx) {
       const suffix = newSuffix !== undefined && newSuffix !== null ? newSuffix : targetEntry.suffix || cfg.defaultSuffix
@@ -1999,7 +2061,11 @@ function addItemsToSection(typeKey, items) {
   }
 
   const typeConfig = GBD_TYPES[typeKey]
-  const iniSec = typeKey === 'scoreboardstdname' && isScoreboardStdSection(state.currentSection) ? state.currentSection : typeConfig.iniSection
+  const isInSubSection = typeConfig.subSections?.includes(state.currentSection)
+  const iniSec =
+    (typeKey === 'scoreboardstdname' && isScoreboardStdSection(state.currentSection)) || isInSubSection
+      ? state.currentSection
+      : typeConfig.iniSection
   const added = getAddedItems(typeKey, iniSec)
   const toAdd = items.filter((item) => {
     const comparable = getComparableItemName(typeKey, item)
@@ -2013,13 +2079,16 @@ function addItemsToSection(typeKey, items) {
 
   if (!state.sections[iniSec]) state.sections[iniSec] = []
 
-  const defaultSuffix = typeConfig.defaultSuffix || ''
-  const hasID = typeConfig.hasID !== false
+  const activeCfg = GBD_TYPES[iniSec] || typeConfig
+  const defaultSuffix = activeCfg.defaultSuffix || ''
+  const hasID = activeCfg.hasID !== false
 
   toAdd.forEach((item) => {
     const itemToWrite = getComparableItemName(typeKey, item)
     if (typeConfig.isScoreboardStdName) {
       state.sections[iniSec].push(itemToWrite + '=' + itemToWrite + defaultSuffix)
+    } else if (activeCfg.isDerbyMatch) {
+      state.sections[iniSec].push('???vs???=' + itemToWrite + defaultSuffix)
     } else if (hasID) {
       if (iniSec === 'stadiumnetid') {
         const suffixToWrite = defaultSuffix.startsWith(',') ? defaultSuffix.slice(1) : defaultSuffix
@@ -2058,7 +2127,7 @@ function removeEntry(secName, visualIdx) {
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim()
     if (!trimmed || trimmed.startsWith(';') || trimmed.startsWith('#') || !trimmed.includes('=')) continue
-    if (hasID && !trimmed.match(/^(\d+|\?\?\?)=.+/)) continue
+    if (hasID && !trimmed.match(/^(\d+(vs\d+)?|\?\?\?(vs\?\?\?)?)=.+/)) continue
 
     if (dataCount === visualIdx) {
       state.sections[secName].splice(i, 1)
@@ -2080,6 +2149,7 @@ function renderModulesEditor() {
     layout.classList.add('left-hidden')
   }
   document.getElementById('btn-add-selected').style.display = 'none'
+  document.getElementById('toolbar-sep-adding-selected').style.display = 'none'
   document.getElementById('btn-add-all').style.display = 'none'
   document.getElementById('btn-add-entry').style.display = 'none'
   document.getElementById('btn-sort').style.display = 'none'
@@ -2363,7 +2433,11 @@ document.getElementById('btn-add-entry').addEventListener('click', () => {
 document.getElementById('btn-add-all').addEventListener('click', () => {
   const typeKey = state.currentType
   const typeConfig = GBD_TYPES[typeKey]
-  const targetSection = typeKey === 'scoreboardstdname' && isScoreboardStdSection(state.currentSection) ? state.currentSection : typeConfig.iniSection
+  const isInSubSection = typeConfig.subSections?.includes(state.currentSection)
+  const targetSection =
+    (typeKey === 'scoreboardstdname' && isScoreboardStdSection(state.currentSection)) || isInSubSection
+      ? state.currentSection
+      : typeConfig.iniSection
   if (!confirm(`Add ALL ${typeConfig.name.toLowerCase()} to [${targetSection}]? You can remove unwanted ones after.`)) return
   addItemsToSection(typeKey, [...(state.gbdFolders[typeKey] || [])])
 })
@@ -2829,6 +2903,7 @@ function buildGameplayStatusCell(status, type) {
 
 function renderGameplayCamPanel() {
   document.getElementById('btn-add-selected').style.display = 'none'
+  document.getElementById('toolbar-sep-adding-selected').style.display = 'none'
   document.getElementById('btn-add-all').style.display = 'none'
   document.getElementById('btn-add-entry').style.display = 'none'
   document.getElementById('btn-sort').style.display = 'none'
