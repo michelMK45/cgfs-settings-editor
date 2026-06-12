@@ -23,7 +23,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     scanRar:       (p) => ipcRenderer.invoke('stadiumAssets:scanRar', p),
     writeToZip:    (p, cat, key, buf) => ipcRenderer.invoke('stadiumAssets:writeToZip', p, cat, key, buf),
     removeFromZip: (p, cat, key) => ipcRenderer.invoke('stadiumAssets:removeFromZip', p, cat, key),
-    writeToRar:    (p, cat, key, buf) => ipcRenderer.invoke('stadiumAssets:writeToRar', p, cat, key, buf),
-    removeFromRar: (p, cat, key) => ipcRenderer.invoke('stadiumAssets:removeFromRar', p, cat, key),
+    writeToRar:      (p, cat, key, buf) => ipcRenderer.invoke('stadiumAssets:writeToRar', p, cat, key, buf),
+    removeFromRar:   (p, cat, key) => ipcRenderer.invoke('stadiumAssets:removeFromRar', p, cat, key),
+    convertRarToZip: (p) => ipcRenderer.invoke('stadiumAssets:convertRarToZip', p),
   },
 })

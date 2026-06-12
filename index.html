@@ -16,11 +16,17 @@
 <body>
 
   <div id="app">
+    <!-- LOADING OVERLAY -->
+    <div id="loading-overlay" aria-hidden="true">
+      <div class="loading-spinner"></div>
+      <span class="loading-label" id="loading-label">Loading...</span>
+    </div>
+
     <!-- HEADER -->
     <header>
       <div class="logo">
         <span>CGFS</span>
-        <span class="logo-badge">SETTINGS EDITOR V1.4</span>
+        <span class="logo-badge">SETTINGS EDITOR 2.1.0</span>
       </div>
       <div class="header-status" id="header-status">
         <div class="status-dot" id="status-dot"></div>
@@ -126,6 +132,7 @@
         <button class="btn" id="btn-full-raw"><i class="fa-solid fa-code"></i>Full INI</button>
         <div class="toolbar-sep"></div>
         <button class="btn danger" id="btn-reset-paths"><i class="fa-solid fa-folder-tree"></i>Change Paths</button>
+        <button class="btn" id="btn-check-updates"><i class="fa-solid fa-arrows-rotate"></i>Check for Updates</button>
       </div>
 
       <!-- GBD TYPE TABS -->
@@ -239,7 +246,7 @@
           <span>-</span>
           <span id="footer-stadiums-loaded">0 folders</span>
         </div>
-        <div style="font-size: 11px; color: var(--text3);">CGFS Settings Editor V1.4 - <a
+        <div style="font-size: 11px; color: var(--text3);">CGFS Settings Editor V2.1.0 - <a
             href="https://soccergaming.com/forums/members/michelmk.288276/" target="_blank">MichelMK</a></div>
       </footer>
     </div>

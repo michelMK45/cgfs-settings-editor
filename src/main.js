@@ -14,9 +14,9 @@ const GBD_TYPES = {
     suffixPlaceholder: ',police,pitch,net',
     suffixRegex: /^(\d+|\?\?\?)=(.+?)(,\d+,\d+,\d+)?\s*(?:;.*)?$/,
     suffixColumns: [
-      { label: 'Police', placeholder: 'e.g. 4', type: 'spinner', min: 0, max: 9 },
-      { label: 'Pitch', placeholder: 'e.g. 0', type: 'spinner', min: 0, max: 9 },
-      { label: 'Net', placeholder: 'e.g. 0', type: 'spinner', min: 0, max: 9 },
+      { label: 'Police', placeholder: 'e.g. 4', type: 'spinner', min: 0},
+      { label: 'Pitch', placeholder: 'e.g. 0', type: 'spinner', min: 0},
+      { label: 'Net', placeholder: 'e.g. 0', type: 'spinner', min: 0},
     ],
   },
   scoreboard: {
@@ -28,7 +28,7 @@ const GBD_TYPES = {
     suffixEditable: false,
     suffixPlaceholder: '',
     suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
-    subSections: ['derbymatch', 'hometeamscoreboard'],
+    subSections: ['hometeamscoreboard'],
   },
   movies: {
     name: 'Movies',
@@ -39,7 +39,7 @@ const GBD_TYPES = {
     suffixEditable: false,
     suffixPlaceholder: '',
     suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
-    subSections: ['teammovies'],
+    subSections: ['derbymatch', 'teammovies'],
   },
   tvlogo: {
     name: 'TV Logos',
@@ -145,14 +145,14 @@ const GBD_TYPES = {
   },
   derbymatch: {
     isSubSection: true,
-    name: 'Derby Match Scoreboards',
+    name: 'Derby Match Movies',
     tabLabel: 'Derby Match',
-    path: 'ScoreBoardGBD',
+    path: 'MoviesGBD',
     section: 'derbymatch',
     iniSection: 'derbymatch',
     defaultSuffix: '',
     suffixEditable: false,
-    suffixRegex: /^(\d+vs\d+|\?\?\?vs\?\?\?)=(.+?)\s*(?:;.*)?$/,
+    suffixRegex: /^((?:\d+|\?\?\?)vs(?:\d+|\?\?\?))=(.+?)\s*(?:;.*)?$/,
     isDerbyMatch: true,
   },
   hometeamtvlogo: {
@@ -331,7 +331,24 @@ function getDraggedTeamId(dataTransfer) {
   return dataTransfer.getData('application/x-cgfs-team-id') || dataTransfer.getData('text/plain') || ''
 }
 
+function updatePickRootBtnGlow() {
+  const btn = document.getElementById('db-pick-root')
+  if (!btn) return
+  btn.classList.toggle('needs-root', !state.db.gameRootPath)
+}
+
+function showLoadingOverlay(text = 'Loading...') {
+  const lbl = document.getElementById('loading-label')
+  if (lbl) lbl.textContent = text
+  document.getElementById('loading-overlay')?.classList.add('visible')
+}
+
+function hideLoadingOverlay() {
+  document.getElementById('loading-overlay')?.classList.remove('visible')
+}
+
 function renderDbTeams() {
+  updatePickRootBtnGlow()
   const body = document.getElementById('db-teams-body')
   const countEl = document.getElementById('db-teams-count')
   if (!body || !countEl) return
@@ -377,6 +394,7 @@ async function loadDbTeams(explicitRootPath = '') {
   }
 
   state.db.loading = true
+  showLoadingOverlay('Loading DB...')
   setDbStatus('Loading teams from FIFA DB...')
 
   try {
@@ -393,6 +411,7 @@ async function loadDbTeams(explicitRootPath = '') {
     setDbStatus('DB load failed: ' + (e?.message || e), 'err')
   } finally {
     state.db.loading = false
+    hideLoadingOverlay()
   }
 }
 
@@ -756,6 +775,10 @@ async function deleteStadiumPreview(stadiumFolderName) {
   }
 }
 
+function hasGameRoot() {
+  return !!(state.rootHandle || getGameRootPathForDesktopActions())
+}
+
 function getGameRootPathForDesktopActions() {
   const dbRoot = String(state.db?.gameRootPath || '').trim()
   if (dbRoot) return dbRoot.replace(/[/\\]+$/, '')
@@ -990,6 +1013,93 @@ document.getElementById('btn-reset-paths').addEventListener('click', () => {
   document.getElementById('setup-screen').style.display = 'flex'
   updateStatusBar('No file loaded', false)
 })
+
+document.getElementById('btn-check-updates').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-check-updates')
+  btn.disabled = true
+  const origHTML = btn.innerHTML
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>Checking...'
+  try {
+    const res = await fetch('https://api.github.com/repos/michelMK45/cgfs-settings-editor/releases/latest')
+    if (!res.ok) throw new Error('Network error')
+    const data = await res.json()
+    const latest = (data.tag_name || '').replace(/^v/, '')
+    const current = __APP_VERSION__
+    if (latest && latest !== current) {
+      showUpdateModal(current, latest, data.html_url, data.body || '')
+    } else {
+      toast(`You're on the latest version (v${current})`, 'success')
+    }
+  } catch {
+    toast('Could not check for updates. Check your connection.', 'error')
+  } finally {
+    btn.disabled = false
+    btn.innerHTML = origHTML
+  }
+})
+
+function showUpdateModal(current, latest, releaseUrl, notes) {
+  const overlay = document.createElement('div')
+  overlay.className = 'stadium-assets-modal-overlay'
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove() })
+
+  const modal = document.createElement('div')
+  modal.className = 'stadium-assets-modal'
+  modal.style.maxWidth = '480px'
+  overlay.appendChild(modal)
+
+  const header = document.createElement('div')
+  header.className = 'stadium-assets-modal-header'
+
+  const title = document.createElement('span')
+  title.className = 'stadium-assets-modal-name'
+  title.textContent = 'Update Available'
+
+  const closeBtn = document.createElement('button')
+  closeBtn.className = 'btn stadium-assets-modal-close'
+  closeBtn.textContent = '✕'
+  closeBtn.addEventListener('click', () => overlay.remove())
+
+  header.appendChild(title)
+  header.appendChild(closeBtn)
+  modal.appendChild(header)
+
+  const body = document.createElement('div')
+  body.style.cssText = 'padding: 16px; display: flex; flex-direction: column; gap: 12px;'
+
+  const info = document.createElement('p')
+  info.style.cssText = 'color: var(--text2); font-size: 13px;'
+  info.innerHTML = `Current version: <span style="color:var(--text)">v${current}</span>&nbsp;&nbsp;→&nbsp;&nbsp;Latest: <span style="color:var(--accent)">v${latest}</span>`
+  body.appendChild(info)
+
+  if (notes.trim()) {
+    const notesEl = document.createElement('pre')
+    notesEl.style.cssText = 'background:var(--bg3); border:1px solid var(--border); border-radius:4px; padding:10px; font-size:11px; color:var(--text2); max-height:160px; overflow-y:auto; white-space:pre-wrap; word-break:break-word;'
+    notesEl.textContent = notes.trim()
+    body.appendChild(notesEl)
+  }
+
+  const actions = document.createElement('div')
+  actions.style.cssText = 'display:flex; gap:8px; justify-content:flex-end;'
+
+  const cancelBtn = document.createElement('button')
+  cancelBtn.className = 'btn'
+  cancelBtn.textContent = 'Later'
+  cancelBtn.addEventListener('click', () => overlay.remove())
+
+  const downloadBtn = document.createElement('button')
+  downloadBtn.className = 'btn'
+  downloadBtn.style.cssText = 'color:var(--accent); border-color:var(--accent);'
+  downloadBtn.innerHTML = '<i class="fa-solid fa-download"></i> Download'
+  downloadBtn.addEventListener('click', () => { window.open(releaseUrl, '_blank'); overlay.remove() })
+
+  actions.appendChild(cancelBtn)
+  actions.appendChild(downloadBtn)
+  body.appendChild(actions)
+
+  modal.appendChild(body)
+  document.body.appendChild(overlay)
+}
 
 // ============================================================
 // INI PARSER
@@ -1226,9 +1336,9 @@ function updateEditorHint(typeKey) {
   const cfg = GBD_TYPES[typeKey]
   const hints = {
     stadium: 'Add stadium folders here. Set the Team ID for each entry.',
-    scoreboard: 'Add scoreboard folders. Map to scoreboard IDs. Use sub-tabs for home team and derby match overrides.',
+    scoreboard: 'Add scoreboard folders. Map to scoreboard IDs. Use the By Home Team sub-tab for home team overrides.',
     scoreboardstdname: 'Scoreboard stadium names: use [scoreboardstdname] and [scoreboardstdnamem]. Enable link to mirror edits in both sections.',
-    movies: 'Add movie folders for intro/outro sequences. Use the By Team sub-tab for team-specific overrides.',
+    movies: 'Add movie folders for intro/outro sequences. Use sub-tabs for derby match and team-specific overrides.',
     tvlogo: 'Add TV logo folders. Use the By Home Team sub-tab for home team overrides.',
     stadiumnetid: 'Editor for stadium net IDs. Format: stadiumID=downDeep,highDeep,rig,shape',
     chantsid: cfg?.hint || 'Raw editor for chant/goal song IDs.',
@@ -1252,7 +1362,7 @@ function getAddedItems(typeKey, sectionOverride = null) {
 
     let folderName
     if (hasID) {
-      const match = trimmed.match(/^(?:\d+|\?\?\?)=([^,;]+)/)
+      const match = trimmed.match(/^(?:(?:\d+|\?\?\?)vs(?:\d+|\?\?\?)|\d+|\?\?\?)=([^,;]+)/)
       if (match && match[1]) {
         folderName = match[1].trim()
         added.add(folderName)
@@ -1563,6 +1673,7 @@ function renderEditor() {
     tab.addEventListener('click', () => {
       if (state.currentSection === sectionName) return
       state.currentSection = sectionName
+      renderItemList(state.currentType)
       renderEditor()
     })
     tabsContainer.appendChild(tab)
@@ -1680,7 +1791,9 @@ function renderSectionVisual(secName) {
       cols = `1fr ${suffixCols} 24px`
     }
   } else {
-    if (hasID) {
+    if (hasID && secConfig.isDerbyMatch) {
+      cols = '65px 65px 1fr 24px'
+    } else if (hasID) {
       if (secConfig.suffixEditable) {
         cols = isStadiumSection ? '70px 1fr 160px 170px 24px' : '70px 1fr 160px 24px'
       } else {
@@ -1695,7 +1808,10 @@ function renderSectionVisual(secName) {
   header.style.cssText = `display:grid;grid-template-columns:${cols};gap:6px;padding:4px 15px 8px;border-bottom:1px solid var(--border);margin-bottom:4px;position:sticky;top:0;background:var(--bg2);z-index:1;font-weight:bold;`
 
   let headerHTML = ''
-  if (hasID) {
+  if (hasID && secConfig.isDerbyMatch) {
+    headerHTML += '<span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;">Home</span>'
+    headerHTML += '<span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;">Away</span>'
+  } else if (hasID) {
     headerHTML += '<span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;">ID</span>'
   }
   if (isScoreboardStdName) {
@@ -1734,58 +1850,107 @@ function renderSectionVisual(secName) {
     row.dataset.section = secName
 
     let idInput = null
+    let derbyHomeInput = null
+    let derbyAwayInput = null
     if (hasID) {
-      const idHasValue = entry.id && entry.id !== '???' && entry.id !== '???vs???'
-      idInput = document.createElement('input')
-      idInput.type = 'text'
-      idInput.className = 'entry-id ' + (idHasValue ? 'has-id' : 'no-id')
-      idInput.value = idHasValue ? entry.id : ''
-      idInput.placeholder = secConfig.isDerbyMatch ? 'homeID vs awayID' : 'ID'
+      if (secConfig.isDerbyMatch) {
+        const rawParts = entry.id ? entry.id.split('vs') : []
+        const homeVal = rawParts[0] === '???' ? '' : (rawParts[0] || '')
+        const awayVal = rawParts[1] === '???' ? '' : (rawParts[1] || '')
 
-      const updateIdClass = () => {
-        idInput.className = 'entry-id ' + (idInput.value.trim() ? 'has-id' : 'no-id')
+        const makeDerbyInput = (value, placeholder) => {
+          const inp = document.createElement('input')
+          inp.type = 'text'
+          inp.className = 'entry-id ' + (value ? 'has-id' : 'no-id')
+          inp.value = value
+          inp.placeholder = placeholder
+          inp.addEventListener('input', () => {
+            inp.className = 'entry-id ' + (inp.value.trim() ? 'has-id' : 'no-id')
+          })
+          inp.addEventListener('change', () => {
+            inp.className = 'entry-id ' + (inp.value.trim() ? 'has-id' : 'no-id')
+            const h = derbyHomeInput.value.trim()
+            const a = derbyAwayInput.value.trim()
+            updateEntryLine(secName, myVisualIdx, (h || '???') + 'vs' + (a || '???'), entry.suffix, undefined)
+          })
+          inp.addEventListener('dragover', (e) => {
+            const droppedId = getDraggedTeamId(e.dataTransfer)
+            if (!droppedId) return
+            e.preventDefault()
+            e.dataTransfer.dropEffect = 'copy'
+            inp.classList.add('drag-over')
+          })
+          inp.addEventListener('dragleave', () => inp.classList.remove('drag-over'))
+          inp.addEventListener('drop', (e) => {
+            e.preventDefault()
+            inp.classList.remove('drag-over')
+            const droppedId = getDraggedTeamId(e.dataTransfer).trim()
+            if (!/^\d+$/.test(droppedId)) {
+              toast('Dropped value is not a valid numeric ID.', 'error')
+              return
+            }
+            inp.value = droppedId
+            inp.className = 'entry-id has-id'
+            inp.dispatchEvent(new Event('change', { bubbles: true }))
+          })
+          return inp
+        }
+
+        derbyHomeInput = makeDerbyInput(homeVal, 'Home ID')
+        derbyAwayInput = makeDerbyInput(awayVal, 'Away ID')
+      } else {
+        const idHasValue = entry.id && entry.id !== '???'
+        idInput = document.createElement('input')
+        idInput.type = 'text'
+        idInput.className = 'entry-id ' + (idHasValue ? 'has-id' : 'no-id')
+        idInput.value = idHasValue ? entry.id : ''
+        idInput.placeholder = 'ID'
+
+        const updateIdClass = () => {
+          idInput.className = 'entry-id ' + (idInput.value.trim() ? 'has-id' : 'no-id')
+        }
+
+        idInput.addEventListener('input', updateIdClass)
+        idInput.addEventListener('change', () => {
+          updateIdClass()
+          let sv = ''
+          if (hasSuffixColumns) {
+            sv = ',' + suffixInputs.map((inp) => inp.value.trim()).join(',')
+          } else if (suffixInput) {
+            sv = suffixInput.value.trim()
+          } else {
+            sv = entry.suffix
+          }
+          const currentComment = commentInput ? commentInput.value.trim() : undefined
+          updateEntryLine(secName, myVisualIdx, idInput.value.trim(), sv, currentComment)
+        })
+
+        idInput.addEventListener('dragover', (e) => {
+          const droppedId = getDraggedTeamId(e.dataTransfer)
+          if (!droppedId) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'copy'
+          idInput.classList.add('drag-over')
+        })
+
+        idInput.addEventListener('dragleave', () => {
+          idInput.classList.remove('drag-over')
+        })
+
+        idInput.addEventListener('drop', (e) => {
+          e.preventDefault()
+          idInput.classList.remove('drag-over')
+          const droppedId = getDraggedTeamId(e.dataTransfer).trim()
+          if (!/^\d+$/.test(droppedId)) {
+            toast('Dropped value is not a valid numeric ID.', 'error')
+            return
+          }
+
+          idInput.value = droppedId
+          updateIdClass()
+          idInput.dispatchEvent(new Event('change', { bubbles: true }))
+        })
       }
-
-      idInput.addEventListener('input', updateIdClass)
-      idInput.addEventListener('change', () => {
-        updateIdClass()
-        let sv = ''
-        if (hasSuffixColumns) {
-          sv = ',' + suffixInputs.map((inp) => inp.value.trim()).join(',')
-        } else if (suffixInput) {
-          sv = suffixInput.value.trim()
-        } else {
-          sv = entry.suffix
-        }
-        const currentComment = commentInput ? commentInput.value.trim() : undefined
-        updateEntryLine(secName, myVisualIdx, idInput.value.trim(), sv, currentComment)
-      })
-
-      idInput.addEventListener('dragover', (e) => {
-        const droppedId = getDraggedTeamId(e.dataTransfer)
-        if (!droppedId) return
-        e.preventDefault()
-        e.dataTransfer.dropEffect = 'copy'
-        idInput.classList.add('drag-over')
-      })
-
-      idInput.addEventListener('dragleave', () => {
-        idInput.classList.remove('drag-over')
-      })
-
-      idInput.addEventListener('drop', (e) => {
-        e.preventDefault()
-        idInput.classList.remove('drag-over')
-        const droppedId = getDraggedTeamId(e.dataTransfer).trim()
-        if (!/^\d+$/.test(droppedId)) {
-          toast('Dropped value is not a valid numeric ID.', 'error')
-          return
-        }
-
-        idInput.value = droppedId
-        updateIdClass()
-        idInput.dispatchEvent(new Event('change', { bubbles: true }))
-      })
     }
 
     let folderEl = null
@@ -2023,7 +2188,12 @@ function renderSectionVisual(secName) {
       })
     }
 
-    if (idInput) row.appendChild(idInput)
+    if (derbyHomeInput) {
+      row.appendChild(derbyHomeInput)
+      row.appendChild(derbyAwayInput)
+    } else if (idInput) {
+      row.appendChild(idInput)
+    }
     if (folderEl) row.appendChild(folderEl)
     if (hasSuffixColumns && suffixInputs.length) {
       suffixElements.forEach((el) => row.appendChild(el))
@@ -2054,7 +2224,7 @@ function updateEntryLine(secName, visualIdx, newId, newSuffix, newComment) {
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim()
     if (!trimmed || trimmed.startsWith(';') || trimmed.startsWith('#') || !trimmed.includes('=')) continue
-    if (hasID && !trimmed.startsWith('???') && !trimmed.match(/^\d+(vs\d+)?=/)) continue
+    if (hasID && !trimmed.startsWith('???') && !trimmed.match(/^\d+(vs(?:\d+|\?\?\?))?=/)) continue
 
     if (dataCount === visualIdx) {
       const suffix = newSuffix !== undefined && newSuffix !== null ? newSuffix : targetEntry.suffix || cfg.defaultSuffix
@@ -2874,8 +3044,6 @@ async function addStadiumAssetFile(stadiumName, category, fileKey, sourceBuffer)
       await window.electronAPI.stadiumAssets.writeToZip(archivePath, category, fileKey, Array.from(new Uint8Array(sourceBuffer)))
       return true
     }
-    const newBaseName = stadiumName.replace(/\.rar$/i, '.zip')
-    if (!confirm(`Adding files to RAR requires converting to ZIP.\n"${stadiumName}" → "${newBaseName}"\nsettings.ini will be updated. Proceed?`)) return false
     const result = await window.electronAPI.stadiumAssets.writeToRar(archivePath, category, fileKey, Array.from(new Uint8Array(sourceBuffer)))
     if (result.convertedToZip) applyRarToZipRename(stadiumName, result.newName)
     return true
@@ -2925,8 +3093,6 @@ async function removeStadiumAssetFile(stadiumName, category, fileKey) {
       await window.electronAPI.stadiumAssets.removeFromZip(archivePath, category, fileKey)
       return true
     }
-    const newBaseName = stadiumName.replace(/\.rar$/i, '.zip')
-    if (!confirm(`Removing files from RAR requires converting to ZIP.\n"${stadiumName}" → "${newBaseName}"\nProceed?`)) return false
     const result = await window.electronAPI.stadiumAssets.removeFromRar(archivePath, category, fileKey)
     if (result.convertedToZip) applyRarToZipRename(stadiumName, result.newName)
     return true
@@ -2936,7 +3102,47 @@ async function removeStadiumAssetFile(stadiumName, category, fileKey) {
   }
 }
 
-function applyRarToZipRename(oldName, newName) {
+async function convertStadiumRarToZip(stadiumName) {
+  const gameRoot = getGameRootPathForDesktopActions()
+  if (!gameRoot) { toast('Set the game root path first.', 'error'); return }
+  const archivePath = gameRoot + '\\StadiumGBD\\' + stadiumName
+  showLoadingOverlay('Converting to ZIP…')
+  try {
+    const result = await window.electronAPI.stadiumAssets.convertRarToZip(archivePath)
+    applyRarToZipRename(stadiumName, result.newName)
+    renderStadiumAssetsPanel()
+  } catch (e) {
+    toast('Failed: ' + e.message, 'error')
+  } finally {
+    hideLoadingOverlay()
+  }
+}
+
+async function convertAllRarToZip() {
+  const gameRoot = getGameRootPathForDesktopActions()
+  if (!gameRoot) { toast('Set the game root path first.', 'error'); return }
+  const rarStadiums = (state.gbdFolders.stadium || []).filter((s) => /\.rar$/i.test(s))
+  if (rarStadiums.length === 0) { toast('No RAR stadiums found.', 'info'); return }
+  showLoadingOverlay('Converting RAR to ZIP…')
+  let converted = 0, failed = 0
+  try {
+    for (const stadiumName of rarStadiums) {
+      const archivePath = gameRoot + '\\StadiumGBD\\' + stadiumName
+      try {
+        const result = await window.electronAPI.stadiumAssets.convertRarToZip(archivePath)
+        applyRarToZipRename(stadiumName, result.newName, true)
+        converted++
+      } catch (_) { failed++ }
+    }
+  } finally {
+    hideLoadingOverlay()
+  }
+  if (failed === 0) toast(`Converted ${converted} RAR stadium${converted !== 1 ? 's' : ''} to ZIP. Save to confirm.`, 'success')
+  else toast(`Converted ${converted}, failed ${failed}.`, failed === rarStadiums.length ? 'error' : 'info')
+  renderStadiumAssetsPanel()
+}
+
+function applyRarToZipRename(oldName, newName, silent = false) {
   const idx = state.gbdFolders.stadium?.indexOf(oldName)
   if (idx !== -1 && idx != null) state.gbdFolders.stadium[idx] = newName
   const re = new RegExp(escapeRegex(oldName), 'gi')
@@ -2949,36 +3155,80 @@ function applyRarToZipRename(oldName, newName) {
     delete state.stadiumAssetsStatus[oldName]
   }
   setUnsaved(true)
-  toast(`Converted ${oldName} → ${newName}. Save settings.ini to confirm.`, 'info')
+  if (!silent) toast(`Converted ${oldName} → ${newName}. Save settings.ini to confirm.`, 'info')
 }
 
-async function applyGameplaySourceToAll(type) {
-  const sourceKey = `gameplay${type}`
-  const source = state.stadiumAssetsSources[sourceKey]
-  if (!source) { toast(`Set a source file for ${type} first using Browse….`, 'error'); return }
+async function preConvertRarsInList(stadiumNames) {
+  const gameRoot = getGameRootPathForDesktopActions()
+  if (!gameRoot) return {}
+  const renames = {}
+  for (const name of stadiumNames) {
+    if (!/\.rar$/i.test(name) || renames[name]) continue
+    try {
+      const result = await window.electronAPI.stadiumAssets.convertRarToZip(gameRoot + '\\StadiumGBD\\' + name)
+      applyRarToZipRename(name, result.newName, true)
+      renames[name] = result.newName
+    } catch (_) {}
+  }
+  return renames
+}
+
+async function applyGameplayToAll() {
+  const source176 = state.stadiumAssetsSources['gameplay176']
+  const source261 = state.stadiumAssetsSources['gameplay261']
+  if (!source176 || !source261) {
+    toast('Set both source files (176 and 261) first using Browse….', 'error')
+    return
+  }
 
   const stadiums = state.gbdFolders.stadium || []
-  const hasKey = `has${type}`
-  const missing = stadiums.filter((s) => {
-    const st = state.stadiumAssetsStatus[s]
-    return !st?.gameplay || !st.gameplay[hasKey]
-  })
+  const missing176 = stadiums.filter((s) => !state.stadiumAssetsStatus[s]?.gameplay?.has176)
+  const missing261 = stadiums.filter((s) => !state.stadiumAssetsStatus[s]?.gameplay?.has261)
 
-  if (missing.length === 0) { toast(`All stadiums already have bcgameplay_${type}.dat`, 'success'); return }
-  if (!confirm(`Apply bcgameplay_${type}.dat to ${missing.length} stadium(s) that are missing it?`)) return
+  if (missing176.length === 0 && missing261.length === 0) {
+    toast('All stadiums already have both gameplay files.', 'success')
+    return
+  }
 
-  let ok = 0
-  for (const stadiumName of missing) {
-    const buf = await source.arrayBuffer()
-    const success = await addStadiumAssetFile(stadiumName, 'gameplay', type, buf)
-    if (success) {
-      if (!state.stadiumAssetsStatus[stadiumName]) state.stadiumAssetsStatus[stadiumName] = EMPTY_ASSET_STATUS()
-      state.stadiumAssetsStatus[stadiumName].gameplay[hasKey] = true
-      ok++
+  const lines = []
+  if (missing176.length > 0) lines.push(`bcgameplay_176.dat → ${missing176.length} stadiums`)
+  if (missing261.length > 0) lines.push(`bcgameplay_261.dat → ${missing261.length} stadiums`)
+  if (!confirm(`Apply to all missing:\n${lines.join('\n')}`)) return
+
+  showLoadingOverlay('Applying GameplayCam…')
+  let ok176 = 0, ok261 = 0
+  try {
+    const renames = await preConvertRarsInList([...missing176, ...missing261])
+    const eff = (n) => renames[n] || n
+
+    for (const origName of missing176) {
+      const stadiumName = eff(origName)
+      const buf = await source176.arrayBuffer()
+      const success = await addStadiumAssetFile(stadiumName, 'gameplay', '176', buf)
+      if (success) {
+        if (!state.stadiumAssetsStatus[stadiumName]) state.stadiumAssetsStatus[stadiumName] = EMPTY_ASSET_STATUS()
+        state.stadiumAssetsStatus[stadiumName].gameplay.has176 = true
+        ok176++
+      }
     }
+    for (const origName of missing261) {
+      const stadiumName = eff(origName)
+      const buf = await source261.arrayBuffer()
+      const success = await addStadiumAssetFile(stadiumName, 'gameplay', '261', buf)
+      if (success) {
+        if (!state.stadiumAssetsStatus[stadiumName]) state.stadiumAssetsStatus[stadiumName] = EMPTY_ASSET_STATUS()
+        state.stadiumAssetsStatus[stadiumName].gameplay.has261 = true
+        ok261++
+      }
+    }
+  } finally {
+    hideLoadingOverlay()
   }
   renderStadiumAssetsPanel()
-  toast(`Applied bcgameplay_${type}.dat to ${ok}/${missing.length} stadiums`, ok === missing.length ? 'success' : 'info')
+  const parts = []
+  if (missing176.length > 0) parts.push(`176: ${ok176}/${missing176.length}`)
+  if (missing261.length > 0) parts.push(`261: ${ok261}/${missing261.length}`)
+  toast(`Applied gameplay — ${parts.join(', ')}`, ok176 + ok261 === missing176.length + missing261.length ? 'success' : 'info')
 }
 
 async function applyGoalpostToAll() {
@@ -2997,21 +3247,104 @@ async function applyGoalpostToAll() {
   if (missing.length === 0) { toast('All stadiums already have a complete goalpost set.', 'success'); return }
   if (!confirm(`Apply goalpost files to ${missing.length} stadium(s) that have an incomplete set?`)) return
 
+  showLoadingOverlay('Applying Goalpost…')
   let ok = 0
-  for (const stadiumName of missing) {
-    const results = await Promise.all([
-      addStadiumAssetFile(stadiumName, 'goalpost', 'goalnet',    await goalnet.arrayBuffer()),
-      addStadiumAssetFile(stadiumName, 'goalpost', 'goalpost',   await goalpost.arrayBuffer()),
-      addStadiumAssetFile(stadiumName, 'goalpost', 'netsupport', await netsupport.arrayBuffer()),
-    ])
-    if (results.every(Boolean)) {
-      if (!state.stadiumAssetsStatus[stadiumName]) state.stadiumAssetsStatus[stadiumName] = EMPTY_ASSET_STATUS()
-      state.stadiumAssetsStatus[stadiumName].goalpost = { hasGoalnet: true, hasGoalpost: true, hasNetsupport: true }
-      ok++
+  try {
+    const renames = await preConvertRarsInList(missing)
+    const eff = (n) => renames[n] || n
+
+    for (const origName of missing) {
+      const stadiumName = eff(origName)
+      const r1 = await addStadiumAssetFile(stadiumName, 'goalpost', 'goalnet',    await goalnet.arrayBuffer())
+      const r2 = await addStadiumAssetFile(stadiumName, 'goalpost', 'goalpost',   await goalpost.arrayBuffer())
+      const r3 = await addStadiumAssetFile(stadiumName, 'goalpost', 'netsupport', await netsupport.arrayBuffer())
+      if (r1 && r2 && r3) {
+        if (!state.stadiumAssetsStatus[stadiumName]) state.stadiumAssetsStatus[stadiumName] = EMPTY_ASSET_STATUS()
+        state.stadiumAssetsStatus[stadiumName].goalpost = { hasGoalnet: true, hasGoalpost: true, hasNetsupport: true }
+        ok++
+      }
     }
+  } finally {
+    hideLoadingOverlay()
   }
   renderStadiumAssetsPanel()
   toast(`Applied goalpost to ${ok}/${missing.length} stadiums`, ok === missing.length ? 'success' : 'info')
+}
+
+async function removeGameplayFromAll() {
+  const stadiums = state.gbdFolders.stadium || []
+  const present176 = stadiums.filter((s) => state.stadiumAssetsStatus[s]?.gameplay?.has176)
+  const present261 = stadiums.filter((s) => state.stadiumAssetsStatus[s]?.gameplay?.has261)
+
+  if (present176.length === 0 && present261.length === 0) {
+    toast('No stadiums have gameplay files.', 'info')
+    return
+  }
+
+  const lines = []
+  if (present176.length > 0) lines.push(`bcgameplay_176.dat from ${present176.length} stadiums`)
+  if (present261.length > 0) lines.push(`bcgameplay_261.dat from ${present261.length} stadiums`)
+  if (!confirm(`Remove from all:\n${lines.join('\n')}`)) return
+
+  showLoadingOverlay('Removing GameplayCam…')
+  let ok176 = 0, ok261 = 0
+  try {
+    for (const stadiumName of present176) {
+      const success = await removeStadiumAssetFile(stadiumName, 'gameplay', '176')
+      if (success) {
+        state.stadiumAssetsStatus[stadiumName].gameplay.has176 = false
+        ok176++
+      }
+    }
+    for (const stadiumName of present261) {
+      const success = await removeStadiumAssetFile(stadiumName, 'gameplay', '261')
+      if (success) {
+        state.stadiumAssetsStatus[stadiumName].gameplay.has261 = false
+        ok261++
+      }
+    }
+  } finally {
+    hideLoadingOverlay()
+  }
+  renderStadiumAssetsPanel()
+  const parts = []
+  if (present176.length > 0) parts.push(`176: ${ok176}/${present176.length}`)
+  if (present261.length > 0) parts.push(`261: ${ok261}/${present261.length}`)
+  toast(`Removed gameplay — ${parts.join(', ')}`, ok176 + ok261 === present176.length + present261.length ? 'success' : 'info')
+}
+
+async function removeGoalpostFromAll() {
+  const stadiums = state.gbdFolders.stadium || []
+  const present = stadiums.filter((s) => {
+    const gp = state.stadiumAssetsStatus[s]?.goalpost
+    return gp && (gp.hasGoalnet || gp.hasGoalpost || gp.hasNetsupport)
+  })
+
+  if (present.length === 0) { toast('No stadiums have goalpost files.', 'info'); return }
+  if (!confirm(`Remove ALL goalpost files from ${present.length} stadium(s) that have them?`)) return
+
+  showLoadingOverlay('Removing Goalpost…')
+  let ok = 0
+  try {
+    for (const stadiumName of present) {
+      const gp = state.stadiumAssetsStatus[stadiumName]?.goalpost || {}
+      const jobs = []
+      if (gp.hasGoalnet)    jobs.push(removeStadiumAssetFile(stadiumName, 'goalpost', 'goalnet'))
+      if (gp.hasGoalpost)   jobs.push(removeStadiumAssetFile(stadiumName, 'goalpost', 'goalpost'))
+      if (gp.hasNetsupport) jobs.push(removeStadiumAssetFile(stadiumName, 'goalpost', 'netsupport'))
+      const results = await Promise.all(jobs)
+      if (results.every(Boolean)) {
+        if (state.stadiumAssetsStatus[stadiumName]) {
+          state.stadiumAssetsStatus[stadiumName].goalpost = { hasGoalnet: false, hasGoalpost: false, hasNetsupport: false }
+        }
+        ok++
+      }
+    }
+  } finally {
+    hideLoadingOverlay()
+  }
+  renderStadiumAssetsPanel()
+  toast(`Removed goalpost files from ${ok}/${present.length} stadiums`, ok === present.length ? 'success' : 'info')
 }
 
 
@@ -3244,6 +3577,20 @@ function renderStadiumAssetsPanel() {
   `
   panel.appendChild(header)
 
+  const canEdit = hasGameRoot()
+  const hasFullRoot = !!getGameRootPathForDesktopActions()
+  if (!canEdit) {
+    const notice = document.createElement('div')
+    notice.className = 'sa-no-root-notice'
+    notice.textContent = 'Set the game root path to assign or remove files.'
+    panel.appendChild(notice)
+  } else if (!hasFullRoot) {
+    const notice = document.createElement('div')
+    notice.className = 'sa-no-root-notice'
+    notice.textContent = 'ZIP/RAR stadiums require the game root path set. Folder stadiums can be edited freely.'
+    panel.appendChild(notice)
+  }
+
   // Toolbar
   const toolbar = document.createElement('div')
   toolbar.className = 'gameplay-cam-toolbar'
@@ -3254,6 +3601,16 @@ function renderStadiumAssetsPanel() {
   scanBtn.textContent = 'Scan / Refresh'
   scanBtn.addEventListener('click', () => scanAllStadiumAssets())
   toolbar.appendChild(scanBtn)
+
+  const hasRars = (state.gbdFolders.stadium || []).some((s) => /\.rar$/i.test(s))
+  if (hasRars) {
+    const convertAllBtn = document.createElement('button')
+    convertAllBtn.className = 'btn'
+    convertAllBtn.textContent = 'Convert all to ZIP'
+    convertAllBtn.disabled = !canEdit || !getGameRootPathForDesktopActions()
+    convertAllBtn.addEventListener('click', () => convertAllRarToZip())
+    toolbar.appendChild(convertAllBtn)
+  }
 
   toolbar.appendChild(Object.assign(document.createElement('div'), { className: 'toolbar-sep' }))
 
@@ -3293,13 +3650,19 @@ function renderStadiumAssetsPanel() {
       pageContent.appendChild(grp)
     }
 
-    for (const type of ['176', '261']) {
-      const applyBtn = document.createElement('button')
-      applyBtn.className = 'btn'
-      applyBtn.textContent = `Apply ${type} to all missing`
-      applyBtn.addEventListener('click', () => applyGameplaySourceToAll(type))
-      pageContent.appendChild(applyBtn)
-    }
+    const applyGameplayBtn = document.createElement('button')
+    applyGameplayBtn.className = 'btn'
+    applyGameplayBtn.textContent = 'Apply to all missing'
+    applyGameplayBtn.disabled = !canEdit
+    applyGameplayBtn.addEventListener('click', () => applyGameplayToAll())
+    pageContent.appendChild(applyGameplayBtn)
+
+    const removeGameplayBtn = document.createElement('button')
+    removeGameplayBtn.className = 'btn danger'
+    removeGameplayBtn.textContent = 'Remove from all'
+    removeGameplayBtn.disabled = !canEdit
+    removeGameplayBtn.addEventListener('click', () => removeGameplayFromAll())
+    pageContent.appendChild(removeGameplayBtn)
   } else {
     // Page 1: GoalpostGBD
     const pageLabel = document.createElement('span')
@@ -3341,8 +3704,16 @@ function renderStadiumAssetsPanel() {
     const applyGoalpostBtn = document.createElement('button')
     applyGoalpostBtn.className = 'btn'
     applyGoalpostBtn.textContent = 'Apply to all missing'
+    applyGoalpostBtn.disabled = !canEdit
     applyGoalpostBtn.addEventListener('click', () => applyGoalpostToAll())
     pageContent.appendChild(applyGoalpostBtn)
+
+    const removeGoalpostAllBtn = document.createElement('button')
+    removeGoalpostAllBtn.className = 'btn danger'
+    removeGoalpostAllBtn.textContent = 'Remove from all'
+    removeGoalpostAllBtn.disabled = !canEdit
+    removeGoalpostAllBtn.addEventListener('click', () => removeGoalpostFromAll())
+    pageContent.appendChild(removeGoalpostAllBtn)
   }
 
   toolbar.appendChild(pageContent)
@@ -3463,21 +3834,39 @@ function renderStadiumAssetsPanel() {
       goalpostCell.appendChild(buildAssetStatusBadge(scanning ? null : goalpost.hasNetsupport, scanning, error))
       row.appendChild(goalpostCell)
 
-      // Open button
       const actionCell = document.createElement('span')
       actionCell.style.display = 'flex'
       actionCell.style.justifyContent = 'center'
-      const openBtn = document.createElement('button')
-      openBtn.className = 'btn sa-open-btn'
-      openBtn.textContent = 'Open'
-      openBtn.addEventListener('click', (e) => {
-        e.stopPropagation()
-        openStadiumAssetsModal(stadiumName)
-      })
-      actionCell.appendChild(openBtn)
-      row.appendChild(actionCell)
 
-      row.addEventListener('click', () => openStadiumAssetsModal(stadiumName))
+      if (isRar) {
+        // RAR stadiums: only offer conversion, no direct editing
+        const canConvert = !!getGameRootPathForDesktopActions()
+        const convertBtn = document.createElement('button')
+        convertBtn.className = 'btn'
+        convertBtn.textContent = 'Convert to ZIP'
+        convertBtn.disabled = !canConvert
+        if (!canConvert) convertBtn.title = 'Set the game root path in the DB panel first'
+        convertBtn.addEventListener('click', (e) => {
+          e.stopPropagation()
+          convertStadiumRarToZip(stadiumName)
+        })
+        actionCell.appendChild(convertBtn)
+      } else {
+        const canEditRow = isZip ? !!getGameRootPathForDesktopActions() : canEdit
+        const openBtn = document.createElement('button')
+        openBtn.className = 'btn sa-open-btn'
+        openBtn.textContent = 'Open'
+        openBtn.disabled = !canEditRow
+        if (isZip && !canEditRow) openBtn.title = 'Set the game root path in the DB panel to edit archive stadiums'
+        openBtn.addEventListener('click', (e) => {
+          e.stopPropagation()
+          if (canEditRow) openStadiumAssetsModal(stadiumName)
+        })
+        actionCell.appendChild(openBtn)
+        if (canEditRow) row.addEventListener('click', () => openStadiumAssetsModal(stadiumName))
+      }
+
+      row.appendChild(actionCell)
       table.appendChild(row)
     }
 
