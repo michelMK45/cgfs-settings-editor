@@ -200,9 +200,15 @@ const state = {
     loading: false,
     gameRootPath: '',
   },
-  gameplayCamStatus: {},
-  gameplayCamSources: { '176': null, '261': null },
-  gameplayCamSearch: '',
+  stadiumAssetsStatus: {},
+  stadiumAssetsSources: {
+    gameplay176: null, gameplay261: null,
+    goalnet: null, goalpost: null, netsupport: null,
+  },
+  stadiumAssetsSearch: '',
+  stadiumAssetsModal: null,
+  stadiumAssetsToolbarPage: 0,
+  leftPanelCollapsed: false,
   sectionOrder: [],
 }
 
@@ -280,6 +286,34 @@ function syncDbPanelLayout() {
   panel.classList.toggle('collapsed', state.db.collapsed)
   toggleBtn.innerHTML = state.db.collapsed ? '<i class="fa-solid fa-caret-left"></i>DB' : 'Collapse<i class="fa-solid fa-caret-right"></i>'
   toggleBtn.title = state.db.collapsed ? 'Expand panel' : 'Collapse panel'
+  toggleBtn.setAttribute('aria-label', toggleBtn.title)
+}
+
+function persistLeftPanelState() {
+  try { localStorage.setItem('leftPanelCollapsed', state.leftPanelCollapsed ? '1' : '0') } catch (e) {}
+}
+
+function loadLeftPanelState() {
+  try {
+    const saved = localStorage.getItem('leftPanelCollapsed')
+    state.leftPanelCollapsed = saved === '1'
+  } catch (e) {
+    state.leftPanelCollapsed = false
+  }
+}
+
+function syncLeftPanelLayout() {
+  const layout = document.querySelector('.main-layout')
+  const panel = document.querySelector('.panel-left')
+  const toggleBtn = document.getElementById('left-toggle')
+  if (!layout || !panel || !toggleBtn) return
+
+  layout.classList.toggle('left-collapsed', state.leftPanelCollapsed)
+  panel.classList.toggle('collapsed', state.leftPanelCollapsed)
+  toggleBtn.innerHTML = state.leftPanelCollapsed
+    ? `Folders<i class="fa-solid fa-caret-right"></i>`
+    : `<i class="fa-solid fa-caret-left"></i>`
+  toggleBtn.title = state.leftPanelCollapsed ? 'Expand panel' : 'Collapse panel'
   toggleBtn.setAttribute('aria-label', toggleBtn.title)
 }
 
@@ -1128,8 +1162,10 @@ function entriesToLines(entries, secName = null) {
 // ============================================================
 function renderAll() {
   renderGBDTypeTabs()
-  if (state.currentType === 'gameplaycam') {
-    renderGameplayCamPanel()
+  if (state.currentType === 'stadium' && state.currentSection === 'stadiumassets') {
+    renderItemList('stadium')
+    renderStadiumAssetsPanel()
+    updateCounts()
     return
   }
   renderItemList(state.currentType)
@@ -1184,24 +1220,6 @@ function renderGBDTypeTabs() {
   })
   container.appendChild(modTab)
 
-  const camTab = document.createElement('button')
-  camTab.className = 'btn' + (state.currentType === 'gameplaycam' ? ' active' : '')
-  camTab.style.display = 'flex'
-  camTab.style.alignItems = 'center'
-  camTab.style.gap = '4px'
-  if (state.currentType === 'gameplaycam') {
-    camTab.style.color = 'var(--accent)'
-    camTab.style.borderColor = 'var(--accent)'
-  }
-  const stadiumCount = state.gbdFolders.stadium?.length || 0
-  camTab.innerHTML = `GameplayCam <span style="font-size:9px;color:var(--text3);">(${stadiumCount})</span>`
-  camTab.addEventListener('click', () => {
-    state.currentType = 'gameplaycam'
-    state.viewMode = 'visual'
-    renderAll()
-    scanAllGameplayCam()
-  })
-  container.appendChild(camTab)
 }
 
 function updateEditorHint(typeKey) {
@@ -1264,7 +1282,7 @@ function getAddedItems(typeKey, sectionOverride = null) {
 }
 
 function renderItemList(typeKey) {
-  if (typeKey === 'modules' || typeKey === 'gameplaycam') return
+  if (typeKey === 'modules') return
   const typeConfig = GBD_TYPES[typeKey]
   const items = state.gbdFolders[typeKey] || []
   const isInSubSection = typeConfig?.subSections?.includes(state.currentSection)
@@ -1586,6 +1604,17 @@ function renderEditor() {
     for (const subSec of typeConfig.subSections) {
       createSectionTab(subSec)
     }
+  } else if (state.currentType === 'stadium') {
+    createSectionTab(iniSec, 'Entries')
+    const assetsTab = document.createElement('div')
+    assetsTab.className = 'section-tab'
+    assetsTab.textContent = 'Assets'
+    assetsTab.addEventListener('click', () => {
+      state.currentSection = 'stadiumassets'
+      renderAll()
+      if (Object.keys(state.stadiumAssetsStatus).length === 0) scanAllStadiumAssets()
+    })
+    tabsContainer.appendChild(assetsTab)
   } else {
     createSectionTab(iniSec)
   }
@@ -2568,6 +2597,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   await initIndexedDB()
   showLastPathSuggestion()
   await initDbPanel()
+  loadLeftPanelState()
+  syncLeftPanelLayout()
+  document.getElementById('left-toggle')?.addEventListener('click', () => {
+    state.leftPanelCollapsed = !state.leftPanelCollapsed
+    persistLeftPanelState()
+    syncLeftPanelLayout()
+  })
 })
 
 document.getElementById('btn-load-suggestion').addEventListener('click', async () => {
@@ -2630,17 +2666,24 @@ if (document.readyState !== 'loading') {
 }
 
 // ============================================================
-// GAMEPLAYCAM PANEL
+// STADIUM ASSETS PANEL
 // ============================================================
+const GOALPOST_DIR = 'GoalpostGBD'
+const GOALPOST_FILES = {
+  goalnet:    'specificgoalnet_0_0.rx3',
+  goalpost:   'specificgoalpost_0_0.rx3',
+  netsupport: 'specificnetsupportpost_0_0_textures.rx3',
+}
+
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function pickGameplayFile() {
+function pickAssetFile(accept = ['.dat', '.rx3']) {
   return new Promise((resolve) => {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = '.dat'
+    input.accept = accept.join(',')
     input.style.display = 'none'
     input.addEventListener('change', () => {
       const file = input.files && input.files.length ? input.files[0] : null
@@ -2652,31 +2695,64 @@ function pickGameplayFile() {
   })
 }
 
-function validateGameplayFileName(file, type) {
-  const expected = `bcgameplay_${type}.dat`
-  if (file.name.toLowerCase() !== expected) {
-    toast(`Wrong file: expected "${expected}" but got "${file.name}". Select the correct file.`, 'error')
+function validateAssetFileName(file, expectedName) {
+  if (file.name.toLowerCase() !== expectedName.toLowerCase()) {
+    toast(`Wrong file: expected "${expectedName}" but got "${file.name}". Select the correct file.`, 'error')
     return false
   }
   return true
 }
 
-async function pickGameplaySourceFile(type) {
-  const file = await pickGameplayFile()
+async function pickAndSetSource(sourceKey, expectedName, accept) {
+  const file = await pickAssetFile(accept)
   if (!file) return
-  if (!validateGameplayFileName(file, type)) return
-  state.gameplayCamSources[type] = file
-  renderGameplayCamPanel()
-  toast(`Source ${type} set: ${file.name}`, 'success')
+  if (!validateAssetFileName(file, expectedName)) return
+  state.stadiumAssetsSources[sourceKey] = file
+  renderStadiumAssetsPanel()
+  toast(`Source set: ${file.name}`, 'success')
 }
 
-async function scanAllGameplayCam() {
-  const stadiums = state.gbdFolders.stadium || []
-  state.gameplayCamStatus = {}
-  for (const s of stadiums) {
-    state.gameplayCamStatus[s] = { scanning: true }
+function buildAssetStatusBadge(hasValue, scanning, error) {
+  const cell = document.createElement('span')
+  cell.className = 'gameplay-status-cell'
+  const badge = document.createElement('span')
+
+  if (scanning) {
+    badge.className = 'gameplay-status-badge scanning'
+    badge.textContent = '…'
+  } else if (error && hasValue == null) {
+    badge.className = 'gameplay-status-badge error'
+    badge.title = error
+    badge.textContent = '?'
+  } else if (hasValue == null) {
+    badge.className = 'gameplay-status-badge unknown'
+    badge.textContent = '–'
+  } else {
+    badge.className = 'gameplay-status-badge ' + (hasValue ? 'yes' : 'no')
+    badge.textContent = hasValue ? '✓' : '✗'
   }
-  renderGameplayCamPanel()
+  cell.appendChild(badge)
+  return cell
+}
+
+const EMPTY_ASSET_STATUS = () => ({
+  gameplay: { has176: false, has261: false },
+  goalpost: { hasGoalnet: false, hasGoalpost: false, hasNetsupport: false },
+})
+
+const NULL_ASSET_STATUS = (error) => ({
+  gameplay: { has176: null, has261: null },
+  goalpost: { hasGoalnet: null, hasGoalpost: null, hasNetsupport: null },
+  ...(error ? { error } : {}),
+})
+
+async function scanAllStadiumAssets() {
+  const stadiums = state.gbdFolders.stadium || []
+  state.stadiumAssetsStatus = {}
+  for (const s of stadiums) {
+    state.stadiumAssetsStatus[s] = { scanning: true }
+  }
+  renderStadiumAssetsPanel()
 
   let stadiumGBDHandle = null
   if (state.rootHandle) {
@@ -2686,61 +2762,82 @@ async function scanAllGameplayCam() {
   for (const stadiumName of stadiums) {
     if (/\.(zip|rar)$/i.test(stadiumName)) continue
     if (!stadiumGBDHandle) {
-      state.gameplayCamStatus[stadiumName] = { has176: null, has261: null }
+      state.stadiumAssetsStatus[stadiumName] = NULL_ASSET_STATUS()
       continue
     }
     try {
       let stadDir
       try { stadDir = await stadiumGBDHandle.getDirectoryHandle(stadiumName) }
-      catch (_) { state.gameplayCamStatus[stadiumName] = { has176: false, has261: false }; continue }
-
-      let camDir
-      try { camDir = await stadDir.getDirectoryHandle('GameplayCamGBD') }
-      catch (_) { state.gameplayCamStatus[stadiumName] = { has176: false, has261: false }; continue }
+      catch (_) { state.stadiumAssetsStatus[stadiumName] = EMPTY_ASSET_STATUS(); continue }
 
       let has176 = false, has261 = false
-      try { await camDir.getFileHandle('bcgameplay_176.dat'); has176 = true } catch (_) {}
-      try { await camDir.getFileHandle('bcgameplay_261.dat'); has261 = true } catch (_) {}
-      state.gameplayCamStatus[stadiumName] = { has176, has261 }
+      try {
+        const camDir = await stadDir.getDirectoryHandle('GameplayCamGBD')
+        try { await camDir.getFileHandle('bcgameplay_176.dat'); has176 = true } catch (_) {}
+        try { await camDir.getFileHandle('bcgameplay_261.dat'); has261 = true } catch (_) {}
+      } catch (_) {}
+
+      let hasGoalnet = false, hasGoalpost = false, hasNetsupport = false
+      try {
+        const gpDir = await stadDir.getDirectoryHandle(GOALPOST_DIR)
+        try { await gpDir.getFileHandle(GOALPOST_FILES.goalnet);    hasGoalnet = true }    catch (_) {}
+        try { await gpDir.getFileHandle(GOALPOST_FILES.goalpost);   hasGoalpost = true }   catch (_) {}
+        try { await gpDir.getFileHandle(GOALPOST_FILES.netsupport); hasNetsupport = true } catch (_) {}
+      } catch (_) {}
+
+      state.stadiumAssetsStatus[stadiumName] = {
+        gameplay: { has176, has261 },
+        goalpost: { hasGoalnet, hasGoalpost, hasNetsupport },
+      }
     } catch (e) {
-      state.gameplayCamStatus[stadiumName] = { has176: null, has261: null, error: e.message }
+      state.stadiumAssetsStatus[stadiumName] = NULL_ASSET_STATUS(e.message)
     }
   }
 
   const archiveStadiums = stadiums.filter((s) => /\.(zip|rar)$/i.test(s))
   if (archiveStadiums.length > 0) {
-    if (!isDesktopApp || !window.electronAPI?.gameplay) {
+    if (!isDesktopApp || !window.electronAPI?.stadiumAssets) {
       for (const s of archiveStadiums) {
-        state.gameplayCamStatus[s] = { has176: null, has261: null, error: 'Desktop app required for archives' }
+        state.stadiumAssetsStatus[s] = NULL_ASSET_STATUS('Desktop app required for archives')
       }
     } else {
       const gameRoot = getGameRootPathForDesktopActions()
       for (const s of archiveStadiums) {
         if (!gameRoot) {
-          state.gameplayCamStatus[s] = { has176: null, has261: null, error: 'Set game root path to scan archives' }
+          state.stadiumAssetsStatus[s] = NULL_ASSET_STATUS('Set game root path to scan archives')
           continue
         }
         const archivePath = gameRoot + '\\StadiumGBD\\' + s
         try {
           const result = /\.zip$/i.test(s)
-            ? await window.electronAPI.gameplay.scanZip(archivePath)
-            : await window.electronAPI.gameplay.scanRar(archivePath)
-          state.gameplayCamStatus[s] = result.noTool
-            ? { has176: null, has261: null, error: '7-Zip required for RAR. Install from 7-zip.org.' }
-            : { has176: result.has176, has261: result.has261 }
+            ? await window.electronAPI.stadiumAssets.scanZip(archivePath)
+            : await window.electronAPI.stadiumAssets.scanRar(archivePath)
+          if (result.noTool) {
+            state.stadiumAssetsStatus[s] = NULL_ASSET_STATUS('7-Zip required for RAR. Install from 7-zip.org.')
+          } else {
+            state.stadiumAssetsStatus[s] = {
+              gameplay: { has176: result.gameplay.has176, has261: result.gameplay.has261 },
+              goalpost: { hasGoalnet: result.goalpost.hasGoalnet, hasGoalpost: result.goalpost.hasGoalpost, hasNetsupport: result.goalpost.hasNetsupport },
+              ...(result.error ? { error: result.error } : {}),
+            }
+          }
         } catch (e) {
-          state.gameplayCamStatus[s] = { has176: null, has261: null, error: e.message }
+          state.stadiumAssetsStatus[s] = NULL_ASSET_STATUS(e.message)
         }
       }
     }
   }
 
-  renderGameplayCamPanel()
+  renderStadiumAssetsPanel()
 }
 
-async function addGameplayFile(stadiumName, type, sourceBuffer) {
+// category: 'gameplay' | 'goalpost'
+// fileKey: '176'|'261' | 'goalnet'|'goalpost'|'netsupport'
+async function addStadiumAssetFile(stadiumName, category, fileKey, sourceBuffer) {
   const isZip = /\.zip$/i.test(stadiumName)
   const isRar = /\.rar$/i.test(stadiumName)
+  const dirName = category === 'gameplay' ? 'GameplayCamGBD' : GOALPOST_DIR
+  const fileName = category === 'gameplay' ? `bcgameplay_${fileKey}.dat` : GOALPOST_FILES[fileKey]
 
   if (!isZip && !isRar) {
     if (!state.rootHandle) { toast('Load the FIFA root folder first.', 'error'); return false }
@@ -2749,8 +2846,8 @@ async function addGameplayFile(stadiumName, type, sourceBuffer) {
     try {
       const stadiumGBDDir = await rootHandle.getDirectoryHandle('StadiumGBD')
       const stadDir = await stadiumGBDDir.getDirectoryHandle(stadiumName)
-      const camDir = await stadDir.getDirectoryHandle('GameplayCamGBD', { create: true })
-      const fh = await camDir.getFileHandle(`bcgameplay_${type}.dat`, { create: true })
+      const assetDir = await stadDir.getDirectoryHandle(dirName, { create: true })
+      const fh = await assetDir.getFileHandle(fileName, { create: true })
       const w = await fh.createWritable()
       await w.write(sourceBuffer)
       await w.close()
@@ -2761,7 +2858,7 @@ async function addGameplayFile(stadiumName, type, sourceBuffer) {
     }
   }
 
-  if (!isDesktopApp || !window.electronAPI?.gameplay) {
+  if (!isDesktopApp || !window.electronAPI?.stadiumAssets) {
     toast('Archive support requires the Desktop (Electron) app.', 'error')
     return false
   }
@@ -2774,12 +2871,12 @@ async function addGameplayFile(stadiumName, type, sourceBuffer) {
   const archivePath = gameRoot + '\\StadiumGBD\\' + stadiumName
   try {
     if (isZip) {
-      await window.electronAPI.gameplay.writeToZip(archivePath, type, Array.from(new Uint8Array(sourceBuffer)))
+      await window.electronAPI.stadiumAssets.writeToZip(archivePath, category, fileKey, Array.from(new Uint8Array(sourceBuffer)))
       return true
     }
     const newBaseName = stadiumName.replace(/\.rar$/i, '.zip')
     if (!confirm(`Adding files to RAR requires converting to ZIP.\n"${stadiumName}" → "${newBaseName}"\nsettings.ini will be updated. Proceed?`)) return false
-    const result = await window.electronAPI.gameplay.writeToRar(archivePath, type, Array.from(new Uint8Array(sourceBuffer)))
+    const result = await window.electronAPI.stadiumAssets.writeToRar(archivePath, category, fileKey, Array.from(new Uint8Array(sourceBuffer)))
     if (result.convertedToZip) applyRarToZipRename(stadiumName, result.newName)
     return true
   } catch (e) {
@@ -2788,9 +2885,11 @@ async function addGameplayFile(stadiumName, type, sourceBuffer) {
   }
 }
 
-async function removeGameplayFile(stadiumName, type) {
+async function removeStadiumAssetFile(stadiumName, category, fileKey) {
   const isZip = /\.zip$/i.test(stadiumName)
   const isRar = /\.rar$/i.test(stadiumName)
+  const dirName = category === 'gameplay' ? 'GameplayCamGBD' : GOALPOST_DIR
+  const fileName = category === 'gameplay' ? `bcgameplay_${fileKey}.dat` : GOALPOST_FILES[fileKey]
 
   if (!isZip && !isRar) {
     if (!state.rootHandle) return false
@@ -2799,10 +2898,10 @@ async function removeGameplayFile(stadiumName, type) {
     try {
       const stadiumGBDDir = await rootHandle.getDirectoryHandle('StadiumGBD')
       const stadDir = await stadiumGBDDir.getDirectoryHandle(stadiumName)
-      let camDir
-      try { camDir = await stadDir.getDirectoryHandle('GameplayCamGBD') }
+      let assetDir
+      try { assetDir = await stadDir.getDirectoryHandle(dirName) }
       catch (_) { return true }
-      try { await camDir.removeEntry(`bcgameplay_${type}.dat`) } catch (_) {}
+      try { await assetDir.removeEntry(fileName) } catch (_) {}
       return true
     } catch (e) {
       toast('Remove failed: ' + e.message, 'error')
@@ -2810,7 +2909,7 @@ async function removeGameplayFile(stadiumName, type) {
     }
   }
 
-  if (!isDesktopApp || !window.electronAPI?.gameplay) {
+  if (!isDesktopApp || !window.electronAPI?.stadiumAssets) {
     toast('Archive support requires the Desktop (Electron) app.', 'error')
     return false
   }
@@ -2823,12 +2922,12 @@ async function removeGameplayFile(stadiumName, type) {
   const archivePath = gameRoot + '\\StadiumGBD\\' + stadiumName
   try {
     if (isZip) {
-      await window.electronAPI.gameplay.removeFromZip(archivePath, type)
+      await window.electronAPI.stadiumAssets.removeFromZip(archivePath, category, fileKey)
       return true
     }
     const newBaseName = stadiumName.replace(/\.rar$/i, '.zip')
     if (!confirm(`Removing files from RAR requires converting to ZIP.\n"${stadiumName}" → "${newBaseName}"\nProceed?`)) return false
-    const result = await window.electronAPI.gameplay.removeFromRar(archivePath, type)
+    const result = await window.electronAPI.stadiumAssets.removeFromRar(archivePath, category, fileKey)
     if (result.convertedToZip) applyRarToZipRename(stadiumName, result.newName)
     return true
   } catch (e) {
@@ -2844,23 +2943,25 @@ function applyRarToZipRename(oldName, newName) {
   for (const sec of Object.keys(state.sections)) {
     state.sections[sec] = state.sections[sec].map((l) => l.replace(re, newName))
   }
-  const prev = state.gameplayCamStatus[oldName]
+  const prev = state.stadiumAssetsStatus[oldName]
   if (prev) {
-    state.gameplayCamStatus[newName] = { ...prev }
-    delete state.gameplayCamStatus[oldName]
+    state.stadiumAssetsStatus[newName] = { ...prev }
+    delete state.stadiumAssetsStatus[oldName]
   }
   setUnsaved(true)
   toast(`Converted ${oldName} → ${newName}. Save settings.ini to confirm.`, 'info')
 }
 
-async function applySourceToAll(type) {
-  const source = state.gameplayCamSources[type]
+async function applyGameplaySourceToAll(type) {
+  const sourceKey = `gameplay${type}`
+  const source = state.stadiumAssetsSources[sourceKey]
   if (!source) { toast(`Set a source file for ${type} first using Browse….`, 'error'); return }
 
   const stadiums = state.gbdFolders.stadium || []
+  const hasKey = `has${type}`
   const missing = stadiums.filter((s) => {
-    const st = state.gameplayCamStatus[s]
-    return !st || !st[`has${type}`]
+    const st = state.stadiumAssetsStatus[s]
+    return !st?.gameplay || !st.gameplay[hasKey]
   })
 
   if (missing.length === 0) { toast(`All stadiums already have bcgameplay_${type}.dat`, 'success'); return }
@@ -2869,39 +2970,223 @@ async function applySourceToAll(type) {
   let ok = 0
   for (const stadiumName of missing) {
     const buf = await source.arrayBuffer()
-    const success = await addGameplayFile(stadiumName, type, buf)
+    const success = await addStadiumAssetFile(stadiumName, 'gameplay', type, buf)
     if (success) {
-      if (!state.gameplayCamStatus[stadiumName]) state.gameplayCamStatus[stadiumName] = {}
-      state.gameplayCamStatus[stadiumName][`has${type}`] = true
+      if (!state.stadiumAssetsStatus[stadiumName]) state.stadiumAssetsStatus[stadiumName] = EMPTY_ASSET_STATUS()
+      state.stadiumAssetsStatus[stadiumName].gameplay[hasKey] = true
       ok++
     }
   }
-  renderGameplayCamPanel()
+  renderStadiumAssetsPanel()
   toast(`Applied bcgameplay_${type}.dat to ${ok}/${missing.length} stadiums`, ok === missing.length ? 'success' : 'info')
 }
 
-function buildGameplayStatusCell(status, type) {
-  const cell = document.createElement('span')
-  cell.className = 'gameplay-status-cell'
-  const badge = document.createElement('span')
-
-  if (!status || status.scanning) {
-    badge.className = 'gameplay-status-badge ' + (status?.scanning ? 'scanning' : 'unknown')
-    badge.textContent = status?.scanning ? '…' : '–'
-  } else if (status.error && status[`has${type}`] == null) {
-    badge.className = 'gameplay-status-badge error'
-    badge.title = status.error
-    badge.textContent = '?'
-  } else {
-    const has = !!status[`has${type}`]
-    badge.className = 'gameplay-status-badge ' + (has ? 'yes' : 'no')
-    badge.textContent = has ? '✓' : '✗'
+async function applyGoalpostToAll() {
+  const { goalnet, goalpost, netsupport } = state.stadiumAssetsSources
+  if (!goalnet || !goalpost || !netsupport) {
+    toast('Set all 3 goalpost source files first using Browse….', 'error')
+    return
   }
-  cell.appendChild(badge)
-  return cell
+
+  const stadiums = state.gbdFolders.stadium || []
+  const missing = stadiums.filter((s) => {
+    const gp = state.stadiumAssetsStatus[s]?.goalpost
+    return !gp || !gp.hasGoalnet || !gp.hasGoalpost || !gp.hasNetsupport
+  })
+
+  if (missing.length === 0) { toast('All stadiums already have a complete goalpost set.', 'success'); return }
+  if (!confirm(`Apply goalpost files to ${missing.length} stadium(s) that have an incomplete set?`)) return
+
+  let ok = 0
+  for (const stadiumName of missing) {
+    const results = await Promise.all([
+      addStadiumAssetFile(stadiumName, 'goalpost', 'goalnet',    await goalnet.arrayBuffer()),
+      addStadiumAssetFile(stadiumName, 'goalpost', 'goalpost',   await goalpost.arrayBuffer()),
+      addStadiumAssetFile(stadiumName, 'goalpost', 'netsupport', await netsupport.arrayBuffer()),
+    ])
+    if (results.every(Boolean)) {
+      if (!state.stadiumAssetsStatus[stadiumName]) state.stadiumAssetsStatus[stadiumName] = EMPTY_ASSET_STATUS()
+      state.stadiumAssetsStatus[stadiumName].goalpost = { hasGoalnet: true, hasGoalpost: true, hasNetsupport: true }
+      ok++
+    }
+  }
+  renderStadiumAssetsPanel()
+  toast(`Applied goalpost to ${ok}/${missing.length} stadiums`, ok === missing.length ? 'success' : 'info')
 }
 
-function renderGameplayCamPanel() {
+
+function buildModalBody(stadiumName) {
+  const status = state.stadiumAssetsStatus[stadiumName] || {}
+  const scanning = !!status.scanning
+  const error = status.error || null
+  const gp = status.gameplay || {}
+  const goalpost = status.goalpost || {}
+
+  const body = document.createElement('div')
+  body.className = 'stadium-assets-modal-body'
+
+  const makeFileRow = (label, hasValue, category, fileKey, accept, expectedName) => {
+    const row = document.createElement('div')
+    row.className = 'stadium-assets-file-row'
+
+    const lbl = document.createElement('span')
+    lbl.className = 'stadium-assets-file-label'
+    lbl.textContent = label
+    lbl.title = label
+    row.appendChild(lbl)
+
+    row.appendChild(buildAssetStatusBadge(scanning ? null : hasValue, scanning, error))
+
+    const assignBtn = document.createElement('button')
+    assignBtn.className = 'btn sa-file-assign-btn'
+    assignBtn.textContent = 'Assign'
+    assignBtn.addEventListener('click', async () => {
+      const src = category === 'gameplay'
+        ? state.stadiumAssetsSources[`gameplay${fileKey}`]
+        : state.stadiumAssetsSources[fileKey]
+      let buf
+      if (src) {
+        buf = await src.arrayBuffer()
+      } else {
+        const f = await pickAssetFile(accept)
+        if (!f) return
+        if (!validateAssetFileName(f, expectedName)) return
+        buf = await f.arrayBuffer()
+      }
+      const ok = await addStadiumAssetFile(stadiumName, category, fileKey, buf)
+      if (ok) {
+        if (!state.stadiumAssetsStatus[stadiumName]) state.stadiumAssetsStatus[stadiumName] = EMPTY_ASSET_STATUS()
+        if (category === 'gameplay') {
+          state.stadiumAssetsStatus[stadiumName].gameplay[`has${fileKey}`] = true
+        } else {
+          const capKey = fileKey.charAt(0).toUpperCase() + fileKey.slice(1)
+          state.stadiumAssetsStatus[stadiumName].goalpost[`has${capKey}`] = true
+        }
+        refreshModalContent(stadiumName)
+        renderStadiumAssetsPanel()
+        toast(`${expectedName} added to ${normalizeStadiumItemName(stadiumName)}`, 'success')
+      }
+    })
+    row.appendChild(assignBtn)
+
+    const removeBtn = document.createElement('button')
+    removeBtn.className = 'btn sa-file-remove-btn'
+    removeBtn.textContent = '✕'
+    removeBtn.title = `Remove ${expectedName}`
+    removeBtn.addEventListener('click', async () => {
+      if (!confirm(`Remove "${expectedName}" from "${normalizeStadiumItemName(stadiumName)}"?`)) return
+      const ok = await removeStadiumAssetFile(stadiumName, category, fileKey)
+      if (ok) {
+        if (category === 'gameplay') {
+          state.stadiumAssetsStatus[stadiumName].gameplay[`has${fileKey}`] = false
+        } else {
+          const capKey = fileKey.charAt(0).toUpperCase() + fileKey.slice(1)
+          state.stadiumAssetsStatus[stadiumName].goalpost[`has${capKey}`] = false
+        }
+        refreshModalContent(stadiumName)
+        renderStadiumAssetsPanel()
+        toast(`${expectedName} removed from ${normalizeStadiumItemName(stadiumName)}`, 'success')
+      }
+    })
+    row.appendChild(removeBtn)
+
+    return row
+  }
+
+  // GameplayCam section
+  const gpSection = document.createElement('div')
+  const gpTitle = document.createElement('div')
+  gpTitle.className = 'stadium-assets-section-title'
+  gpTitle.textContent = 'GameplayCam'
+  gpSection.appendChild(gpTitle)
+  gpSection.appendChild(makeFileRow('bcgameplay_176.dat', gp.has176, 'gameplay', '176', ['.dat'], 'bcgameplay_176.dat'))
+  gpSection.appendChild(makeFileRow('bcgameplay_261.dat', gp.has261, 'gameplay', '261', ['.dat'], 'bcgameplay_261.dat'))
+  body.appendChild(gpSection)
+
+  // GoalpostGBD section
+  const goalpostSection = document.createElement('div')
+  const goalpostTitle = document.createElement('div')
+  goalpostTitle.className = 'stadium-assets-section-title'
+  goalpostTitle.textContent = 'GoalpostGBD'
+  goalpostSection.appendChild(goalpostTitle)
+  goalpostSection.appendChild(makeFileRow(GOALPOST_FILES.goalnet,    goalpost.hasGoalnet,    'goalpost', 'goalnet',    ['.rx3'], GOALPOST_FILES.goalnet))
+  goalpostSection.appendChild(makeFileRow(GOALPOST_FILES.goalpost,   goalpost.hasGoalpost,   'goalpost', 'goalpost',   ['.rx3'], GOALPOST_FILES.goalpost))
+  goalpostSection.appendChild(makeFileRow(GOALPOST_FILES.netsupport, goalpost.hasNetsupport, 'goalpost', 'netsupport', ['.rx3'], GOALPOST_FILES.netsupport))
+  body.appendChild(goalpostSection)
+
+  return body
+}
+
+function refreshModalContent(stadiumName) {
+  const modal = document.querySelector('.stadium-assets-modal')
+  if (!modal) return
+  const oldBody = modal.querySelector('.stadium-assets-modal-body')
+  if (oldBody) oldBody.replaceWith(buildModalBody(stadiumName))
+}
+
+function openStadiumAssetsModal(stadiumName) {
+  closeStadiumAssetsModal()
+  state.stadiumAssetsModal = stadiumName
+
+  const isZip = /\.zip$/i.test(stadiumName)
+  const isRar = /\.rar$/i.test(stadiumName)
+  const normalizedName = normalizeStadiumItemName(stadiumName)
+
+  const overlay = document.createElement('div')
+  overlay.className = 'stadium-assets-modal-overlay'
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeStadiumAssetsModal()
+  })
+
+  const modal = document.createElement('div')
+  modal.className = 'stadium-assets-modal'
+  overlay.appendChild(modal)
+
+  const header = document.createElement('div')
+  header.className = 'stadium-assets-modal-header'
+
+  const nameEl = document.createElement('span')
+  nameEl.className = 'stadium-assets-modal-name'
+  const nameText = document.createTextNode(normalizedName)
+  nameEl.appendChild(nameText)
+  if (isZip) {
+    const badge = document.createElement('span')
+    badge.className = 'gameplay-archive-badge zip'
+    badge.textContent = 'ZIP'
+    nameEl.appendChild(badge)
+  } else if (isRar) {
+    const badge = document.createElement('span')
+    badge.className = 'gameplay-archive-badge rar'
+    badge.textContent = 'RAR'
+    nameEl.appendChild(badge)
+  }
+  header.appendChild(nameEl)
+
+  const closeBtn = document.createElement('button')
+  closeBtn.className = 'btn stadium-assets-modal-close'
+  closeBtn.textContent = '✕'
+  closeBtn.addEventListener('click', closeStadiumAssetsModal)
+  header.appendChild(closeBtn)
+
+  modal.appendChild(header)
+  modal.appendChild(buildModalBody(stadiumName))
+
+  document.body.appendChild(overlay)
+
+  const onEsc = (e) => { if (e.key === 'Escape') closeStadiumAssetsModal() }
+  document.addEventListener('keydown', onEsc)
+  overlay._onEsc = onEsc
+}
+
+function closeStadiumAssetsModal() {
+  const overlay = document.querySelector('.stadium-assets-modal-overlay')
+  if (!overlay) return
+  if (overlay._onEsc) document.removeEventListener('keydown', overlay._onEsc)
+  overlay.remove()
+  state.stadiumAssetsModal = null
+}
+
+function renderStadiumAssetsPanel() {
   document.getElementById('btn-add-selected').style.display = 'none'
   document.getElementById('toolbar-sep-adding-selected').style.display = 'none'
   document.getElementById('btn-add-all').style.display = 'none'
@@ -2912,9 +3197,28 @@ function renderGameplayCamPanel() {
   document.getElementById('btn-full-raw').style.display = 'none'
 
   const layout = document.querySelector('.main-layout')
-  if (layout) layout.classList.add('left-hidden')
+  if (layout) layout.classList.remove('left-hidden')
 
-  document.getElementById('section-tabs').innerHTML = ''
+  // Render section tabs: Entries (click → back to stadium entries) + Assets (active)
+  const tabsContainer = document.getElementById('section-tabs')
+  tabsContainer.innerHTML = ''
+  const entriesTab = document.createElement('div')
+  entriesTab.className = 'section-tab'
+  const entryCount = (state.sections.stadium || []).filter((l) => {
+    const t = l.trim()
+    return t && !t.startsWith(';') && /^(\d+|\?\?\?)=/.test(t)
+  }).length
+  entriesTab.innerHTML = `Entries <span class="tab-count">${entryCount}</span>`
+  entriesTab.addEventListener('click', () => {
+    state.currentSection = 'stadium'
+    renderAll()
+  })
+  tabsContainer.appendChild(entriesTab)
+  const assetsTabActive = document.createElement('div')
+  assetsTabActive.className = 'section-tab active'
+  assetsTabActive.textContent = 'Assets'
+  tabsContainer.appendChild(assetsTabActive)
+
   document.getElementById('raw-editor').classList.remove('visible')
 
   const editorEl = document.getElementById('item-editor')
@@ -2924,7 +3228,6 @@ function renderGameplayCamPanel() {
   editorEl.innerHTML = ''
 
   const stadiums = state.gbdFolders.stadium || []
-
   const panel = document.createElement('div')
   panel.className = 'gameplay-cam-panel'
 
@@ -2932,11 +3235,11 @@ function renderGameplayCamPanel() {
   const header = document.createElement('div')
   header.className = 'gameplay-cam-header'
   header.innerHTML = `
-    <div class="gameplay-cam-title">GameplayCam Files</div>
+    <div class="gameplay-cam-title">Stadiums Assets</div>
     <div class="gameplay-cam-desc">
-      Manages <code>bcgameplay_176.dat</code> and <code>bcgameplay_261.dat</code>
-      inside each stadium's <code>GameplayCamGBD/</code> subfolder.
-      ZIP archives are fully supported. RAR archives are converted to ZIP when modified.
+      Manages <code>GameplayCamGBD/</code> (<code>bcgameplay_176.dat</code>, <code>bcgameplay_261.dat</code>)
+      and <code>GoalpostGBD/</code> (goalpost rx3 files) inside each stadium folder.
+      Click a stadium to assign or remove files. ZIP archives fully supported; RAR converted to ZIP when modified.
     </div>
   `
   panel.appendChild(header)
@@ -2945,52 +3248,120 @@ function renderGameplayCamPanel() {
   const toolbar = document.createElement('div')
   toolbar.className = 'gameplay-cam-toolbar'
 
+  // Scan button — always visible
   const scanBtn = document.createElement('button')
   scanBtn.className = 'btn'
   scanBtn.textContent = 'Scan / Refresh'
-  scanBtn.addEventListener('click', () => scanAllGameplayCam())
+  scanBtn.addEventListener('click', () => scanAllStadiumAssets())
   toolbar.appendChild(scanBtn)
 
-  const sep1 = document.createElement('div')
-  sep1.className = 'toolbar-sep'
-  toolbar.appendChild(sep1)
+  toolbar.appendChild(Object.assign(document.createElement('div'), { className: 'toolbar-sep' }))
 
-  for (const type of ['176', '261']) {
-    const grp = document.createElement('div')
-    grp.className = 'gameplay-cam-source-group'
+  // Paged content area
+  const pageContent = document.createElement('div')
+  pageContent.className = 'sa-toolbar-page-content'
 
-    const lbl = document.createElement('span')
-    lbl.className = 'gameplay-cam-source-label'
-    lbl.textContent = `Source ${type}:`
-    grp.appendChild(lbl)
+  if (state.stadiumAssetsToolbarPage === 0) {
+    // Page 0: GameplayCam
+    const pageLabel = document.createElement('span')
+    pageLabel.className = 'sa-toolbar-page-label'
+    pageLabel.textContent = 'GameplayCam'
+    pageContent.appendChild(pageLabel)
 
-    const nm = document.createElement('span')
-    nm.className = 'gameplay-cam-source-name'
-    const srcFile = state.gameplayCamSources[type]
-    nm.textContent = srcFile ? srcFile.name : 'none set'
-    nm.title = srcFile ? srcFile.name : ''
-    grp.appendChild(nm)
+    for (const type of ['176', '261']) {
+      const grp = document.createElement('div')
+      grp.className = 'gameplay-cam-source-group'
 
-    const browseBtn = document.createElement('button')
-    browseBtn.className = 'btn'
-    browseBtn.textContent = 'Browse…'
-    browseBtn.addEventListener('click', () => pickGameplaySourceFile(type))
-    grp.appendChild(browseBtn)
+      const lbl = document.createElement('span')
+      lbl.className = 'gameplay-cam-source-label'
+      lbl.textContent = `Source ${type}:`
+      grp.appendChild(lbl)
 
-    toolbar.appendChild(grp)
+      const nm = document.createElement('span')
+      nm.className = 'gameplay-cam-source-name'
+      const srcFile = state.stadiumAssetsSources[`gameplay${type}`]
+      nm.textContent = srcFile ? srcFile.name : 'none set'
+      nm.title = srcFile ? srcFile.name : ''
+      grp.appendChild(nm)
+
+      const browseBtn = document.createElement('button')
+      browseBtn.className = 'btn'
+      browseBtn.textContent = 'Browse…'
+      browseBtn.addEventListener('click', () => pickAndSetSource(`gameplay${type}`, `bcgameplay_${type}.dat`, ['.dat']))
+      grp.appendChild(browseBtn)
+
+      pageContent.appendChild(grp)
+    }
+
+    for (const type of ['176', '261']) {
+      const applyBtn = document.createElement('button')
+      applyBtn.className = 'btn'
+      applyBtn.textContent = `Apply ${type} to all missing`
+      applyBtn.addEventListener('click', () => applyGameplaySourceToAll(type))
+      pageContent.appendChild(applyBtn)
+    }
+  } else {
+    // Page 1: GoalpostGBD
+    const pageLabel = document.createElement('span')
+    pageLabel.className = 'sa-toolbar-page-label'
+    pageLabel.textContent = 'GoalpostGBD'
+    pageContent.appendChild(pageLabel)
+
+    const gpSources = [
+      { key: 'goalnet',    label: 'Goalnet:',    file: GOALPOST_FILES.goalnet },
+      { key: 'goalpost',   label: 'Goalpost:',   file: GOALPOST_FILES.goalpost },
+      { key: 'netsupport', label: 'Netsupportpost:', file: GOALPOST_FILES.netsupport },
+    ]
+
+    for (const { key, label, file } of gpSources) {
+      const grp = document.createElement('div')
+      grp.className = 'gameplay-cam-source-group'
+
+      const lbl = document.createElement('span')
+      lbl.className = 'gameplay-cam-source-label'
+      lbl.textContent = label
+      grp.appendChild(lbl)
+
+      const nm = document.createElement('span')
+      nm.className = 'gameplay-cam-source-name'
+      const srcFile = state.stadiumAssetsSources[key]
+      nm.textContent = srcFile ? srcFile.name : 'none set'
+      nm.title = srcFile ? srcFile.name : ''
+      grp.appendChild(nm)
+
+      const browseBtn = document.createElement('button')
+      browseBtn.className = 'btn'
+      browseBtn.textContent = 'Browse…'
+      browseBtn.addEventListener('click', () => pickAndSetSource(key, file, ['.rx3']))
+      grp.appendChild(browseBtn)
+
+      pageContent.appendChild(grp)
+    }
+
+    const applyGoalpostBtn = document.createElement('button')
+    applyGoalpostBtn.className = 'btn'
+    applyGoalpostBtn.textContent = 'Apply to all missing'
+    applyGoalpostBtn.addEventListener('click', () => applyGoalpostToAll())
+    pageContent.appendChild(applyGoalpostBtn)
   }
 
-  const sep2 = document.createElement('div')
-  sep2.className = 'toolbar-sep'
-  toolbar.appendChild(sep2)
+  toolbar.appendChild(pageContent)
 
-  for (const type of ['176', '261']) {
-    const applyBtn = document.createElement('button')
-    applyBtn.className = 'btn'
-    applyBtn.textContent = `Apply ${type} to all missing`
-    applyBtn.addEventListener('click', () => applySourceToAll(type))
-    toolbar.appendChild(applyBtn)
+  // Dot navigation — pushed to right
+  const dots = document.createElement('div')
+  dots.className = 'sa-toolbar-dots'
+  const dotLabels = ['GameplayCam', 'GoalpostGBD']
+  for (let i = 0; i < 2; i++) {
+    const dot = document.createElement('button')
+    dot.className = 'sa-toolbar-dot' + (state.stadiumAssetsToolbarPage === i ? ' active' : '')
+    dot.title = dotLabels[i]
+    dot.addEventListener('click', () => {
+      state.stadiumAssetsToolbarPage = i
+      renderStadiumAssetsPanel()
+    })
+    dots.appendChild(dot)
   }
+  toolbar.appendChild(dots)
 
   panel.appendChild(toolbar)
 
@@ -3002,7 +3373,7 @@ function renderGameplayCamPanel() {
   searchInput.type = 'text'
   searchInput.className = 'gameplay-cam-search'
   searchInput.placeholder = 'Search stadiums…'
-  searchInput.value = state.gameplayCamSearch
+  searchInput.value = state.stadiumAssetsSearch
   searchRow.appendChild(searchInput)
 
   const countEl = document.createElement('span')
@@ -3012,7 +3383,7 @@ function renderGameplayCamPanel() {
 
   panel.appendChild(searchRow)
 
-  const initQuery = state.gameplayCamSearch.trim().toLowerCase()
+  const initQuery = state.stadiumAssetsSearch.trim().toLowerCase()
 
   // Table
   if (stadiums.length === 0) {
@@ -3026,8 +3397,8 @@ function renderGameplayCamPanel() {
     table.className = 'gameplay-cam-table'
 
     const thead = document.createElement('div')
-    thead.className = 'gameplay-cam-row gameplay-cam-thead'
-    for (const label of ['Stadium', '176', '261', 'Actions']) {
+    thead.className = 'sa-row sa-thead'
+    for (const label of ['Stadium', 'GameplayCam', 'GoalpostGBD', '']) {
       const cell = document.createElement('span')
       cell.textContent = label
       thead.appendChild(cell)
@@ -3043,11 +3414,15 @@ function renderGameplayCamPanel() {
     for (const stadiumName of stadiums) {
       const isZip = /\.zip$/i.test(stadiumName)
       const isRar = /\.rar$/i.test(stadiumName)
-      const status = state.gameplayCamStatus[stadiumName]
+      const status = state.stadiumAssetsStatus[stadiumName]
+      const scanning = !!status?.scanning
+      const error = status?.error || null
+      const gp = status?.gameplay || {}
+      const goalpost = status?.goalpost || {}
 
       const normalizedName = normalizeStadiumItemName(stadiumName)
       const row = document.createElement('div')
-      row.className = 'gameplay-cam-row'
+      row.className = 'sa-row'
       row.dataset.stadium = normalizedName.toLowerCase()
       if (initQuery && !normalizedName.toLowerCase().includes(initQuery)) {
         row.style.display = 'none'
@@ -3055,13 +3430,11 @@ function renderGameplayCamPanel() {
         visibleCount++
       }
 
-      // Name
+      // Stadium name
       const nameCell = document.createElement('span')
       nameCell.className = 'gameplay-cam-stadium-name'
       nameCell.title = stadiumName
-      const nameText = document.createElement('span')
-      nameText.textContent = normalizedName
-      nameCell.appendChild(nameText)
+      nameCell.appendChild(document.createTextNode(normalizedName))
       if (isZip) {
         const badge = document.createElement('span')
         badge.className = 'gameplay-archive-badge zip'
@@ -3075,72 +3448,49 @@ function renderGameplayCamPanel() {
       }
       row.appendChild(nameCell)
 
-      row.appendChild(buildGameplayStatusCell(status, '176'))
-      row.appendChild(buildGameplayStatusCell(status, '261'))
+      // GameplayCam summary (176 + 261)
+      const gpCell = document.createElement('span')
+      gpCell.className = 'sa-summary-cell'
+      gpCell.appendChild(buildAssetStatusBadge(scanning ? null : gp.has176, scanning, error))
+      gpCell.appendChild(buildAssetStatusBadge(scanning ? null : gp.has261, scanning, error))
+      row.appendChild(gpCell)
 
-      // Actions
-      const actionsCell = document.createElement('span')
-      actionsCell.className = 'gameplay-cam-actions'
+      // GoalpostGBD summary (3 badges)
+      const goalpostCell = document.createElement('span')
+      goalpostCell.className = 'sa-summary-cell'
+      goalpostCell.appendChild(buildAssetStatusBadge(scanning ? null : goalpost.hasGoalnet,    scanning, error))
+      goalpostCell.appendChild(buildAssetStatusBadge(scanning ? null : goalpost.hasGoalpost,   scanning, error))
+      goalpostCell.appendChild(buildAssetStatusBadge(scanning ? null : goalpost.hasNetsupport, scanning, error))
+      row.appendChild(goalpostCell)
 
-      for (const type of ['176', '261']) {
-        const addBtn = document.createElement('button')
-        addBtn.className = 'btn gameplay-cam-add-btn'
-        addBtn.textContent = `+${type}`
-        addBtn.title = `Add / replace bcgameplay_${type}.dat`
-        addBtn.addEventListener('click', async () => {
-          let buf
-          if (state.gameplayCamSources[type]) {
-            buf = await state.gameplayCamSources[type].arrayBuffer()
-          } else {
-            const f = await pickGameplayFile()
-            if (!f) return
-            if (!validateGameplayFileName(f, type)) return
-            buf = await f.arrayBuffer()
-          }
-          const ok = await addGameplayFile(stadiumName, type, buf)
-          if (ok) {
-            if (!state.gameplayCamStatus[stadiumName]) state.gameplayCamStatus[stadiumName] = {}
-            state.gameplayCamStatus[stadiumName][`has${type}`] = true
-            renderGameplayCamPanel()
-            toast(`bcgameplay_${type}.dat added to ${normalizeStadiumItemName(stadiumName)}`, 'success')
-          }
-        })
-        actionsCell.appendChild(addBtn)
-      }
-
-      const removeBtn = document.createElement('button')
-      removeBtn.className = 'btn gameplay-cam-remove-btn'
-      removeBtn.textContent = '✕'
-      removeBtn.title = 'Remove bcgameplay_176.dat and bcgameplay_261.dat'
-      removeBtn.addEventListener('click', async () => {
-        if (!confirm(`Remove GameplayCamGBD files from "${normalizeStadiumItemName(stadiumName)}"?`)) return
-        const ok176 = await removeGameplayFile(stadiumName, '176')
-        const ok261 = await removeGameplayFile(stadiumName, '261')
-        if (ok176 || ok261) {
-          const st = state.gameplayCamStatus[stadiumName] || {}
-          if (ok176) st.has176 = false
-          if (ok261) st.has261 = false
-          state.gameplayCamStatus[stadiumName] = st
-          renderGameplayCamPanel()
-          toast(`GameplayCamGBD files removed from ${normalizeStadiumItemName(stadiumName)}`, 'success')
-        }
+      // Open button
+      const actionCell = document.createElement('span')
+      actionCell.style.display = 'flex'
+      actionCell.style.justifyContent = 'center'
+      const openBtn = document.createElement('button')
+      openBtn.className = 'btn sa-open-btn'
+      openBtn.textContent = 'Open'
+      openBtn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        openStadiumAssetsModal(stadiumName)
       })
-      actionsCell.appendChild(removeBtn)
+      actionCell.appendChild(openBtn)
+      row.appendChild(actionCell)
 
-      row.appendChild(actionsCell)
+      row.addEventListener('click', () => openStadiumAssetsModal(stadiumName))
       table.appendChild(row)
     }
 
-    noMatchEl.textContent = `No stadiums match "${state.gameplayCamSearch}"`
+    noMatchEl.textContent = `No stadiums match "${state.stadiumAssetsSearch}"`
     noMatchEl.style.display = (initQuery && visibleCount === 0) ? '' : 'none'
     countEl.textContent = initQuery
       ? `${visibleCount} / ${stadiums.length} stadiums`
       : `${stadiums.length} stadiums`
 
     searchInput.addEventListener('input', (e) => {
-      state.gameplayCamSearch = e.target.value
+      state.stadiumAssetsSearch = e.target.value
       const q = e.target.value.trim().toLowerCase()
-      const allRows = table.querySelectorAll('.gameplay-cam-row:not(.gameplay-cam-thead)')
+      const allRows = table.querySelectorAll('.sa-row:not(.sa-thead)')
       let cnt = 0
       allRows.forEach((r) => {
         const name = r.dataset.stadium || ''

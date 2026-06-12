@@ -295,6 +295,155 @@ ipcMain.handle('gameplay:removeFromRar', async (_event, rarPath, fileType) => {
 })
 
 // ============================================================
+// STADIUM ASSETS — ZIP / RAR helpers
+// ============================================================
+const STADIUM_ASSET_DIRS = {
+  gameplay: 'GameplayCamGBD',
+  goalpost: 'GoalpostGBD',
+}
+const STADIUM_ASSET_FILES = {
+  gameplay: { '176': 'bcgameplay_176.dat', '261': 'bcgameplay_261.dat' },
+  goalpost: {
+    goalnet:    'specificgoalnet_0_0.rx3',
+    goalpost:   'specificgoalpost_0_0.rx3',
+    netsupport: 'specificnetsupportpost_0_0_textures.rx3',
+  },
+}
+
+ipcMain.handle('stadiumAssets:scanZip', async (_event, zipPath) => {
+  try {
+    const zip = new AdmZip(zipPath)
+    const names = zip.getEntries().map((e) => e.entryName.replace(/\\/g, '/').toLowerCase())
+    const sfx = (cat, key) => (STADIUM_ASSET_DIRS[cat] + '/' + STADIUM_ASSET_FILES[cat][key]).toLowerCase()
+    return {
+      gameplay: {
+        has176: names.some((n) => n.endsWith(sfx('gameplay', '176'))),
+        has261: names.some((n) => n.endsWith(sfx('gameplay', '261'))),
+      },
+      goalpost: {
+        hasGoalnet:    names.some((n) => n.endsWith(sfx('goalpost', 'goalnet'))),
+        hasGoalpost:   names.some((n) => n.endsWith(sfx('goalpost', 'goalpost'))),
+        hasNetsupport: names.some((n) => n.endsWith(sfx('goalpost', 'netsupport'))),
+      },
+    }
+  } catch (e) {
+    return {
+      gameplay: { has176: false, has261: false },
+      goalpost: { hasGoalnet: false, hasGoalpost: false, hasNetsupport: false },
+      error: e.message,
+    }
+  }
+})
+
+ipcMain.handle('stadiumAssets:scanRar', async (_event, rarPath) => {
+  const sz = find7zip()
+  if (!sz) return {
+    gameplay: { has176: false, has261: false },
+    goalpost: { hasGoalnet: false, hasGoalpost: false, hasNetsupport: false },
+    noTool: true,
+  }
+  try {
+    const stdout = await execFileAsync(sz, ['l', rarPath])
+    const normalized = stdout.toLowerCase().replace(/\\/g, '/')
+    const has = (cat, key) => normalized.includes((STADIUM_ASSET_DIRS[cat] + '/' + STADIUM_ASSET_FILES[cat][key]).toLowerCase())
+    return {
+      gameplay: { has176: has('gameplay', '176'), has261: has('gameplay', '261') },
+      goalpost: {
+        hasGoalnet:    has('goalpost', 'goalnet'),
+        hasGoalpost:   has('goalpost', 'goalpost'),
+        hasNetsupport: has('goalpost', 'netsupport'),
+      },
+    }
+  } catch (e) {
+    return {
+      gameplay: { has176: false, has261: false },
+      goalpost: { hasGoalnet: false, hasGoalpost: false, hasNetsupport: false },
+      error: e.message,
+    }
+  }
+})
+
+ipcMain.handle('stadiumAssets:writeToZip', async (_event, zipPath, category, fileKey, fileBufferArray) => {
+  const dir = STADIUM_ASSET_DIRS[category]
+  const fileName = STADIUM_ASSET_FILES[category]?.[fileKey]
+  if (!dir || !fileName) throw new Error(`Unknown category/key: ${category}/${fileKey}`)
+  const zip = new AdmZip(zipPath)
+  const internalRoot = detectZipInternalRoot(zip)
+  const entryName = internalRoot + dir + '/' + fileName
+  const suffix = (dir + '/' + fileName).toLowerCase()
+  const existing = zip.getEntries().find((e) => e.entryName.replace(/\\/g, '/').toLowerCase().endsWith(suffix))
+  if (existing) zip.deleteFile(existing.entryName)
+  zip.addFile(entryName, Buffer.from(fileBufferArray))
+  zip.writeZip(zipPath)
+  return { ok: true }
+})
+
+ipcMain.handle('stadiumAssets:removeFromZip', async (_event, zipPath, category, fileKey) => {
+  const dir = STADIUM_ASSET_DIRS[category]
+  const fileName = STADIUM_ASSET_FILES[category]?.[fileKey]
+  if (!dir || !fileName) throw new Error(`Unknown category/key: ${category}/${fileKey}`)
+  const zip = new AdmZip(zipPath)
+  const suffix = (dir + '/' + fileName).toLowerCase()
+  const existing = zip.getEntries().find((e) => e.entryName.replace(/\\/g, '/').toLowerCase().endsWith(suffix))
+  if (existing) zip.deleteFile(existing.entryName)
+  zip.writeZip(zipPath)
+  return { ok: true }
+})
+
+async function rarToZipStadiumAssets(rarPath, modifications) {
+  const sz = find7zip()
+  if (!sz) throw new Error('7-Zip not found. Install 7-Zip (7-zip.org) to enable RAR support.')
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cgfs-sa-'))
+  try {
+    await execFileAsync(sz, ['x', rarPath, '-o' + tmpDir, '-y'])
+    const contentRoot = getExtractionRoot(tmpDir)
+
+    for (const [category, files] of Object.entries(modifications.add || {})) {
+      const dir = STADIUM_ASSET_DIRS[category]
+      if (!dir) continue
+      const targetDir = path.join(contentRoot, dir)
+      if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true })
+      for (const [fileKey, buf] of Object.entries(files)) {
+        const fileName = STADIUM_ASSET_FILES[category]?.[fileKey]
+        if (fileName) fs.writeFileSync(path.join(targetDir, fileName), Buffer.from(buf))
+      }
+    }
+    for (const [category, keys] of Object.entries(modifications.remove || {})) {
+      const dir = STADIUM_ASSET_DIRS[category]
+      if (!dir) continue
+      for (const fileKey of keys) {
+        const fileName = STADIUM_ASSET_FILES[category]?.[fileKey]
+        if (!fileName) continue
+        const target = path.join(contentRoot, dir, fileName)
+        if (fs.existsSync(target)) fs.unlinkSync(target)
+      }
+    }
+
+    const rarDir = path.dirname(rarPath)
+    const rarBase = path.basename(rarPath, '.rar')
+    const zipPath = path.join(rarDir, rarBase + '.zip')
+    if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath)
+    await execFileAsync(sz, ['a', '-tzip', zipPath, path.join(tmpDir, '*'), '-y'])
+    fs.unlinkSync(rarPath)
+
+    return { newName: rarBase + '.zip' }
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch (_) {}
+  }
+}
+
+ipcMain.handle('stadiumAssets:writeToRar', async (_event, rarPath, category, fileKey, fileBufferArray) => {
+  const result = await rarToZipStadiumAssets(rarPath, { add: { [category]: { [fileKey]: fileBufferArray } } })
+  return { ok: true, convertedToZip: true, newName: result.newName }
+})
+
+ipcMain.handle('stadiumAssets:removeFromRar', async (_event, rarPath, category, fileKey) => {
+  const result = await rarToZipStadiumAssets(rarPath, { remove: { [category]: [fileKey] } })
+  return { ok: true, convertedToZip: true, newName: result.newName }
+})
+
+// ============================================================
 app.whenReady().then(() => {
   createWindow()
 

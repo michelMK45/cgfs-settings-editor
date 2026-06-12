@@ -368,6 +368,13 @@ header {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
+  min-width: 320px;
+  transition: min-width 0.28s ease, border-color 0.28s ease, background-color 0.28s ease;
+}
+
+.panel-left.collapsed {
+  min-width: 0;
 }
 
 .panel-header {
@@ -818,6 +825,97 @@ header {
   overflow: visible;
 }
 
+.left-toggle-icon {
+  min-width: 26px;
+  padding: 3px 6px;
+  font-size: 12px;
+  line-height: 1;
+  justify-content: center;
+  gap: 4px;
+}
+
+.main-layout.left-collapsed {
+  grid-template-columns: 0px minmax(0, 1fr) 360px;
+}
+
+.main-layout.left-collapsed.db-collapsed {
+  grid-template-columns: 0px minmax(0, 1fr) 0px;
+}
+
+.main-layout.left-collapsed .panel-left {
+  border-right-color: transparent;
+  background: transparent;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.main-layout.left-collapsed .item-list {
+  display: none;
+}
+
+.main-layout.left-collapsed .panel-header {
+  padding: 0;
+  border-bottom: none;
+  background: transparent;
+  min-height: 0;
+  overflow: visible;
+}
+
+.main-layout.left-collapsed .panel-title {
+  padding: 0;
+  overflow: visible;
+  min-height: 0;
+}
+
+.main-layout.left-collapsed #left-panel-title,
+.main-layout.left-collapsed #item-count,
+.main-layout.left-collapsed #search-items,
+.main-layout.left-collapsed #filter-tabs {
+  display: none;
+}
+
+.main-layout.left-collapsed #left-toggle {
+  width: 70px;
+  height: 36px;
+  padding-left: 10px;
+  position: absolute;
+  top: 0px;
+  left: -3px;
+  z-index: 30;
+  border-radius: 6px;
+  justify-content: center;
+  pointer-events: auto;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
+ animation: left-toggle 4s ease-in-out infinite;
+}
+
+@keyframes left-toggle {
+  0%, 100% {
+    color: var(--accent);
+    left: -10px;
+  }
+
+  50% {
+    color: var(--text);
+    left: -3px;
+  }
+}
+
+/* left-hidden takes priority over left-collapsed */
+.main-layout.left-hidden.left-collapsed {
+  grid-template-columns: minmax(0, 1fr) 360px;
+}
+
+/* triple: db-collapsed wins over the 360px from left-hidden.left-collapsed */
+.main-layout.left-hidden.left-collapsed.db-collapsed {
+  grid-template-columns: minmax(0, 1fr) 0px;
+}
+
+/* offset section-tabs so the floating expand button doesn't overlap the tab text */
+.main-layout.left-collapsed:not(.left-hidden) .section-tabs {
+  padding-left: 68px;
+}
+
 @media (max-width: 1320px) {
   .main-layout {
     grid-template-columns: 280px minmax(0, 1fr) 320px;
@@ -825,6 +923,10 @@ header {
 
   .main-layout.db-collapsed {
     grid-template-columns: 280px minmax(0, 1fr) 0px;
+  }
+
+  .main-layout.left-collapsed {
+    grid-template-columns: 0px minmax(0, 1fr) 320px;
   }
 
   .main-layout.left-hidden {
@@ -1657,11 +1759,65 @@ a {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   padding: 8px 10px;
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: 4px;
+  min-height: 42px;
+}
+
+.sa-toolbar-page-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.sa-toolbar-page-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  padding: 2px 7px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.sa-toolbar-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: 4px;
+  rotate: 90deg;
+}
+
+.sa-toolbar-dot {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border2);
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+
+.sa-toolbar-dot:hover:not(.active) {
+  border-color: var(--text3);
+  background: var(--bg4);
+}
+
+.sa-toolbar-dot.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  transform: scale(1.15);
 }
 
 .gameplay-cam-source-group {
@@ -1880,5 +2036,169 @@ a {
 }
 
 .gameplay-cam-remove-btn:hover {
+  background: rgba(224, 82, 82, 0.1) !important;
+}
+
+/* ============================================================
+   STADIUM ASSETS — list row (replaces old 4-col gameplay row)
+   ============================================================ */
+.sa-row {
+  display: grid;
+  grid-template-columns: 1fr 100px 130px 80px;
+  gap: 8px;
+  align-items: center;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sa-row:last-child {
+  border-bottom: none;
+}
+
+.sa-row:not(.sa-thead):hover {
+  background: var(--bg3);
+  cursor: pointer;
+}
+
+.sa-thead {
+  background: var(--bg2);
+  font-size: 10px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.sa-summary-cell {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+}
+
+.sa-open-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+}
+
+/* ============================================================
+   STADIUM ASSETS MODAL
+   ============================================================ */
+.stadium-assets-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stadium-assets-modal {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  width: 560px;
+  max-width: 92vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+
+.stadium-assets-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.stadium-assets-modal-name {
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.stadium-assets-modal-close {
+  font-size: 13px;
+  padding: 2px 8px;
+  color: var(--text3);
+  flex-shrink: 0;
+}
+
+.stadium-assets-modal-body {
+  padding: 16px 18px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.stadium-assets-modal-body::-webkit-scrollbar {
+  width: 4px;
+}
+
+.stadium-assets-modal-body::-webkit-scrollbar-thumb {
+  background: var(--border2);
+  border-radius: 2px;
+}
+
+.stadium-assets-section-title {
+  font-size: 10px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 8px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--border);
+}
+
+.stadium-assets-file-row {
+  display: grid;
+  grid-template-columns: 1fr 26px auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 5px 0;
+}
+
+.stadium-assets-file-row + .stadium-assets-file-row {
+  border-top: 1px solid var(--border);
+}
+
+.stadium-assets-file-label {
+  font-size: 11px;
+  color: var(--text2);
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sa-file-assign-btn {
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+.sa-file-remove-btn {
+  font-size: 11px;
+  padding: 3px 7px;
+  color: var(--red) !important;
+  border-color: var(--red) !important;
+}
+
+.sa-file-remove-btn:hover {
   background: rgba(224, 82, 82, 0.1) !important;
 }

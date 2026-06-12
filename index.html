@@ -144,7 +144,12 @@
           <div class="panel-header">
             <div class="panel-title">
               <span id="left-panel-title">StadiumGBD folder</span>
-              <span class="count-badge" id="item-count">0</span>
+              <div style="display:flex;align-items:center;gap:4px;">
+                <span class="count-badge" id="item-count">0</span>
+                <button class="btn left-toggle-icon" id="left-toggle" title="Collapse panel" aria-label="Collapse panel">
+                  <i class="fa-solid fa-caret-left"></i>
+                </button>
+              </div>
             </div>
             <input type="text" class="search-box" id="search-items" placeholder="Search...">
             <div class="filter-tabs" id="filter-tabs"></div>
