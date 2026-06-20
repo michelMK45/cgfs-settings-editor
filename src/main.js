@@ -622,11 +622,17 @@ function normalizeStadiumItemName(name) {
 }
 
 function usesPackedStadiumItems(typeKey) {
-  return typeKey === 'stadium' || typeKey === 'scoreboardstdname' || typeKey === 'stadiumnetname'
+  return (
+    typeKey === 'stadium' ||
+    typeKey === 'scoreboardstdname' ||
+    typeKey === 'stadiumnetname' ||
+    typeKey === 'scoreboard' ||
+    typeKey === 'hometeamscoreboard'
+  )
 }
 
 function getComparableItemName(typeKey, itemName) {
-  if (usesPackedStadiumItems(typeKey)) {
+  if (usesPackedStadiumItems(typeKey) && typeKey !== 'scoreboard' && typeKey !== 'hometeamscoreboard') {
     return normalizeStadiumItemName(itemName)
   }
   return itemName
