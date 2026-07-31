@@ -52,6 +52,17 @@ const GBD_TYPES = {
     suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
     subSections: ['hometeamtvlogo'],
   },
+  kitsid: {
+    name: 'Kits',
+    path: 'FSW/Kits',
+    section: 'kitsid',
+    iniSection: 'kitsid',
+    defaultSuffix: '',
+    suffixEditable: false,
+    suffixPlaceholder: '',
+    suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
+    hint: 'Kits - link a team ID to a kit folder. Drag a team ID from the DB panel onto the ID field.',
+  },
   chantsid: {
     name: 'Chants IDs',
     rawOnly: false,
@@ -1140,7 +1151,7 @@ function buildIni() {
   }
   const order = state.sectionOrder.length
     ? state.sectionOrder
-    : ['scoreboard', 'hometeamscoreboard', 'derbymatch', 'scoreboardstdname', 'scoreboardstdnamem', 'tvlogo', 'hometeamtvlogo', 'movies', 'teammovies', 'stadiumnetid', 'stadiumnetname', 'chantsid', 'modules', 'stadium']
+    : ['scoreboard', 'hometeamscoreboard', 'derbymatch', 'scoreboardstdname', 'scoreboardstdnamem', 'tvlogo', 'hometeamtvlogo', 'movies', 'teammovies', 'stadiumnetid', 'stadiumnetname', 'chantsid', 'kitsid', 'modules', 'stadium']
   const written = new Set()
   for (const sec of order) {
     if (state.sections[sec] !== undefined) {
@@ -1163,6 +1174,7 @@ function getSectionName(sec) {
     stadiumnetid: 'stadiumnetid',
     stadiumnetname: 'stadiumnetname',
     chantsid: 'chantsid',
+    kitsid: 'kitsid',
     movies: 'movies',
     scoreboard: 'scoreboard',
     scoreboardstdname: 'scoreboardstdname',
@@ -1348,6 +1360,7 @@ function updateEditorHint(typeKey) {
     tvlogo: 'Add TV logo folders. Use the By Home Team sub-tab for home team overrides.',
     stadiumnetid: 'Editor for stadium net IDs. Format: stadiumID=downDeep,highDeep,rig,shape',
     chantsid: cfg?.hint || 'Raw editor for chant/goal song IDs.',
+    kitsid: cfg?.hint || 'Kits - link a team ID to a kit folder.',
     stadiumnetname: cfg?.hint || 'Raw editor for stadium net names.',
   }
   document.getElementById('editor-hint').textContent = hints[typeKey] || 'Edit entries for this section.'
