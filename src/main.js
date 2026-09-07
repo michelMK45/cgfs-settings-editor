@@ -70,11 +70,11 @@ const GBD_TYPES = {
     path: 'FSW/Chants',
     section: 'chantsid',
     iniSection: 'chantsid',
-    defaultSuffix: ',0.12,0.15,0.10,0.05,0.15,0.13,0.15,8.0,0.35',
+    defaultSuffix: ',0.12,0.15,0.10,0.05,0.15,0.13,0.15,8.0,0.35,0.16,7.0',
     suffixEditable: true,
-    suffixPlaceholder: ',vol,win,lose1,lose2,lose3,goal',
+    suffixPlaceholder: ',vol,win,lose1,lose2,lose3,goal,silenceProb,maxSilence,awayCrowd,entranceVol,entranceDelay',
     suffixRegex: /^(\d+|\?\?\?)=(.+?)((?:,[\d.]+)+)?\s*(?:;.*)?$/,
-    hint: 'Chants IDs - double-click a folder on the left to insert it in raw mode.',
+    hint: 'Chants IDs - double-click a folder on the left to insert it in raw mode. Entrance Anthem plays Entrance.mp3 from the chant folder at kickoff, using the Vol. Entrance / Entrance Delay fields below.',
     suffixColumns: [
       { label: 'Default', placeholder: 'e.g. 0.12', type: 'slider', min: 0, max: 1, step: 0.01 },
       { label: 'Winning', placeholder: 'e.g. 0.15', type: 'slider', min: 0, max: 1, step: 0.01 },
@@ -85,6 +85,8 @@ const GBD_TYPES = {
       { label: 'Silence prob', placeholder: 'e.g. 1', type: 'slider', min: 0, max: 1, step: 0.1 },
       { label: 'Max Silence', placeholder: 'Sec 8.0', type: 'slider', min: 0, max: 30, step: 0.1 },
       { label: 'Away Crowd', placeholder: 'e.g. 0', type: 'slider', min: 0, max: 1, step: 0.1 },
+      { label: 'Vol. Entrance', placeholder: 'e.g. 0.16', type: 'slider', min: 0, max: 1, step: 0.01 },
+      { label: 'Entrance Delay (s)', placeholder: 'e.g. 7.0', type: 'slider', min: 0, max: 45, step: 0.5 },
     ],
   },
   stadiumnetname: {
@@ -188,6 +190,50 @@ const GBD_TYPES = {
     suffixEditable: false,
     suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
   },
+  ball: {
+    name: 'Ball',
+    path: 'FSW/balls',
+    section: 'ball',
+    iniSection: 'ball',
+    defaultSuffix: '',
+    suffixEditable: false,
+    suffixPlaceholder: '',
+    suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
+    hint: 'Balls - assign a ball folder to a competition Round ID (TOURROUNDID), not a team ID. Applied to data/sceneassets/ball at kickoff.',
+  },
+  referee: {
+    name: 'Referee',
+    path: 'FSW/referee',
+    section: 'referee',
+    iniSection: 'referee',
+    defaultSuffix: '',
+    suffixEditable: false,
+    suffixPlaceholder: '',
+    suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
+    hint: 'Referees - assign a referee kit folder to a competition Round ID (TOURROUNDID), not a team ID. Applied to data/sceneassets/kit at kickoff.',
+  },
+  wipe: {
+    name: 'Wipe',
+    path: 'FSW/wipe',
+    section: 'wipe',
+    iniSection: 'wipe',
+    defaultSuffix: '',
+    suffixEditable: false,
+    suffixPlaceholder: '',
+    suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
+    hint: 'Wipes - assign a 3D scene-transition wipe folder to a competition Round ID (TOURROUNDID), not a team ID. Applied to data/sceneassets/wipe3d.',
+  },
+  adboard: {
+    name: 'Adboard',
+    path: 'FSW/adboards',
+    section: 'adboard',
+    iniSection: 'adboard',
+    defaultSuffix: '',
+    suffixEditable: false,
+    suffixPlaceholder: '',
+    suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
+    hint: 'Adboards - fallback folder assigned to a competition Round ID (TOURROUNDID), not a team ID. A folder here named after a stadium is used automatically for that stadium; this assignment only applies when no such stadium-matched folder exists.',
+  },
 }
 
 const state = {
@@ -220,6 +266,7 @@ const state = {
   stadiumAssetsModal: null,
   stadiumAssetsToolbarPage: 0,
   leftPanelCollapsed: false,
+  hideAddedItems: false,
   sectionOrder: [],
 }
 
@@ -392,6 +439,11 @@ function renderDbTeams() {
 
     tr.addEventListener('dragend', () => {
       tr.classList.remove('dragging')
+    })
+
+    tr.addEventListener('click', () => {
+      if (state.currentType !== 'stadium') return
+      openStadiumAssignModal(String(team.id))
     })
 
     body.appendChild(tr)
@@ -630,6 +682,46 @@ function updateStatusBar(text, ok = false) {
 
 function normalizeStadiumItemName(name) {
   return name.replace(/\.(zip|rar)$/i, '')
+}
+
+const MAX_ASSIGNED_STADIUMS = 64
+const STADIUM_DEFAULT_TRIPLE = { police: '4', pitch: '0', net: '0' }
+
+// Mirrors StadiumRuntime._parse_stadium_entries (stadium_runtime.py): a
+// [stadium]/[comp] value is either the legacy shared-triple format
+// (name1[,name2,...],police,pitch,net) or the newer per-stadium format
+// (name1,police1,pitch1,net1[,name2,police2,pitch2,net2,...]), each stadium
+// with its own triple. Disambiguated without a new delimiter: the
+// per-stadium format's field count is always a multiple of 4 AND the field
+// right after the first name is numeric (a real stadium folder name is
+// never a bare number).
+function parseStadiumEntries(rawValue) {
+  const parts = String(rawValue || '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean)
+  if (parts.length < 4) return []
+  if (parts.length % 4 === 0 && /^\d+$/.test(parts[1])) {
+    const entries = []
+    for (let i = 0; i < parts.length; i += 4) {
+      const [name, police, pitch, net] = parts.slice(i, i + 4)
+      if (name && name !== 'None') entries.push({ name, police, pitch, net })
+    }
+    return entries
+  }
+  const net = parts[parts.length - 1]
+  const pitch = parts[parts.length - 2]
+  const police = parts[parts.length - 3]
+  return parts
+    .slice(0, -3)
+    .filter((name) => name && name !== 'None')
+    .map((name) => ({ name, police, pitch, net }))
+}
+
+function serializeStadiumEntries(stadiums) {
+  return stadiums
+    .map((s) => [s.name, s.police || STADIUM_DEFAULT_TRIPLE.police, s.pitch || STADIUM_DEFAULT_TRIPLE.pitch, s.net || STADIUM_DEFAULT_TRIPLE.net].join(','))
+    .join(',')
 }
 
 function usesPackedStadiumItems(typeKey) {
@@ -886,6 +978,502 @@ async function uploadStadiumPreview(stadiumFolderName) {
 }
 
 // ============================================================
+// CHANTS BULK EDIT MODAL
+// ============================================================
+function applyBulkSuffixToSection(secName, newSuffix) {
+  const lines = state.sections[secName]
+  if (!lines) return 0
+  const cfg = getSectionConfig(secName)
+  let count = 0
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim()
+    if (!trimmed || trimmed.startsWith(';') || trimmed.startsWith('#') || !trimmed.includes('=')) continue
+    if (!cfg.suffixRegex.test(trimmed)) continue
+    const idMatch = trimmed.match(/^(\d+|\?\?\?)=/)
+    if (!idMatch) continue
+    const fullVal = trimmed.slice(trimmed.indexOf('=') + 1).replace(/\s*;.*$/, '').trim()
+    const suffixMatch = fullVal.match(/(,[\d.,]+)$/)
+    const folder = suffixMatch ? fullVal.slice(0, fullVal.length - suffixMatch[0].length).trim() : fullVal
+    lines[i] = idMatch[1] + '=' + folder + newSuffix
+    count++
+  }
+  return count
+}
+
+function openChantsBulkModal() {
+  const cfg = GBD_TYPES.chantsid
+  const columns = cfg.suffixColumns || []
+  const defaults = (cfg.defaultSuffix || '').split(',').filter(Boolean)
+
+  const entryCount = parseSection('chantsid').filter((e) => e.type === 'entry').length
+  if (entryCount === 0) {
+    toast('No chant entries to update yet.', '')
+    return
+  }
+
+  const overlay = document.createElement('div')
+  overlay.className = 'stadium-assets-modal-overlay'
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove() })
+
+  const modal = document.createElement('div')
+  modal.className = 'stadium-assets-modal chants-bulk-modal'
+  overlay.appendChild(modal)
+
+  const header = document.createElement('div')
+  header.className = 'stadium-assets-modal-header'
+  const title = document.createElement('span')
+  title.className = 'stadium-assets-modal-name'
+  title.textContent = 'Apply Values to All Chants'
+  const closeBtn = document.createElement('button')
+  closeBtn.className = 'btn stadium-assets-modal-close'
+  closeBtn.textContent = '✕'
+  closeBtn.addEventListener('click', () => overlay.remove())
+  header.appendChild(title)
+  header.appendChild(closeBtn)
+  modal.appendChild(header)
+
+  const body = document.createElement('div')
+  body.className = 'stadium-assets-modal-body'
+
+  const hint = document.createElement('div')
+  hint.className = 'chants-bulk-hint'
+  hint.textContent = `Set a value for each field, then apply it to all ${entryCount} chant ${entryCount === 1 ? 'entry' : 'entries'}.`
+  body.appendChild(hint)
+
+  const fieldsWrap = document.createElement('div')
+  fieldsWrap.className = 'chants-bulk-fields'
+
+  const numberInputs = columns.map((col, idx) => {
+    const min = col.min ?? 0
+    const max = col.max ?? 1
+    const step = col.step ?? 0.01
+    const initial = defaults[idx] ?? min
+
+    const row = document.createElement('div')
+    row.className = 'chants-bulk-field'
+
+    const label = document.createElement('label')
+    label.textContent = col.label
+    row.appendChild(label)
+
+    const range = document.createElement('input')
+    range.type = 'range'
+    range.className = 'suffix-slider-range'
+    range.min = min
+    range.max = max
+    range.step = step
+    range.value = parseFloat(initial) || min
+
+    const number = document.createElement('input')
+    number.type = 'number'
+    number.className = 'entry-suffix-input'
+    number.min = min
+    number.max = max
+    number.step = step
+    number.value = initial
+
+    range.addEventListener('input', () => { number.value = range.value })
+    number.addEventListener('input', () => {
+      const v = parseFloat(number.value)
+      if (!isNaN(v)) range.value = Math.min(max, Math.max(min, v))
+    })
+
+    row.appendChild(range)
+    row.appendChild(number)
+    fieldsWrap.appendChild(row)
+    return number
+  })
+
+  body.appendChild(fieldsWrap)
+
+  const actions = document.createElement('div')
+  actions.className = 'chants-bulk-actions'
+
+  const cancelBtn = document.createElement('button')
+  cancelBtn.className = 'btn'
+  cancelBtn.textContent = 'Cancel'
+  cancelBtn.addEventListener('click', () => overlay.remove())
+
+  const applyBtn = document.createElement('button')
+  applyBtn.className = 'btn primary'
+  applyBtn.textContent = 'Apply to All'
+  applyBtn.addEventListener('click', () => {
+    if (!confirm(`Apply these values to all ${entryCount} chant entries? This overwrites their current values.`)) return
+    const values = numberInputs.map((inp) => (inp.value.trim() === '' ? '0' : inp.value.trim()))
+    const newSuffix = ',' + values.join(',')
+    const count = applyBulkSuffixToSection('chantsid', newSuffix)
+    setUnsaved(true)
+    renderEditor()
+    overlay.remove()
+    toast(`Applied to ${count} chant ${count === 1 ? 'entry' : 'entries'}.`, 'success')
+  })
+
+  actions.appendChild(cancelBtn)
+  actions.appendChild(applyBtn)
+  body.appendChild(actions)
+
+  modal.appendChild(body)
+  document.body.appendChild(overlay)
+}
+
+// ============================================================
+// STADIUM ASSIGNMENT MODAL
+// ============================================================
+function locateStadiumLine(teamId, visualIdx) {
+  const lines = state.sections.stadium || []
+  if (visualIdx != null) {
+    let dataCount = 0
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trim()
+      if (!trimmed || trimmed.startsWith(';') || trimmed.startsWith('#') || !trimmed.includes('=')) continue
+      if (!trimmed.match(/^(\d+|\?\?\?)=/)) continue
+      if (dataCount === visualIdx) return i
+      dataCount++
+    }
+    return -1
+  }
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim()
+    const m = trimmed.match(/^(\d+|\?\?\?)=/)
+    if (m && m[1] === teamId) return i
+  }
+  return -1
+}
+
+function openStadiumAssignModal(teamId, visualIdx = null) {
+  const lines = state.sections.stadium || []
+  const lineIdx = locateStadiumLine(teamId, visualIdx)
+  const currentId = lineIdx >= 0 ? lines[lineIdx].match(/^(\d+|\?\?\?)=/)[1] : teamId
+  const existingRawVal = lineIdx >= 0 ? lines[lineIdx].slice(lines[lineIdx].indexOf('=') + 1).replace(/\s*;.*$/, '').trim() : ''
+  let assigned = parseStadiumEntries(existingRawVal).map((s) => ({ ...s }))
+  let selectedIdx = assigned.length ? 0 : -1
+  let availableSearch = ''
+
+  const teamInfo = state.db.teams.find((t) => String(t.id) === String(currentId))
+
+  const overlay = document.createElement('div')
+  overlay.className = 'stadium-assets-modal-overlay'
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove() })
+
+  const modal = document.createElement('div')
+  modal.className = 'stadium-assets-modal stadium-assign-modal'
+  overlay.appendChild(modal)
+
+  const header = document.createElement('div')
+  header.className = 'stadium-assets-modal-header'
+  const title = document.createElement('span')
+  title.className = 'stadium-assets-modal-name'
+  title.textContent = 'Assign Stadiums — Team ' + currentId + (teamInfo ? ' (' + teamInfo.name + ')' : '')
+  const closeBtn = document.createElement('button')
+  closeBtn.className = 'btn stadium-assets-modal-close'
+  closeBtn.textContent = '✕'
+  closeBtn.addEventListener('click', () => overlay.remove())
+  header.appendChild(title)
+  header.appendChild(closeBtn)
+  modal.appendChild(header)
+
+  const body = document.createElement('div')
+  body.className = 'stadium-assets-modal-body stadium-assign-body'
+  modal.appendChild(body)
+
+  const countLabel = document.createElement('div')
+  countLabel.className = 'stadium-assign-count'
+  body.appendChild(countLabel)
+
+  const columns = document.createElement('div')
+  columns.className = 'stadium-assign-columns'
+  body.appendChild(columns)
+
+  // ---- Assigned column ----
+  const assignedCol = document.createElement('div')
+  assignedCol.className = 'stadium-assign-col'
+
+  const assignedTitle = document.createElement('h4')
+  assignedTitle.textContent = 'Assigned'
+  assignedCol.appendChild(assignedTitle)
+
+  const assignedListEl = document.createElement('div')
+  assignedListEl.className = 'stadium-assign-list'
+  assignedCol.appendChild(assignedListEl)
+
+  const assignedToolbar = document.createElement('div')
+  assignedToolbar.className = 'stadium-assign-toolbar'
+  const moveUpBtn = document.createElement('button')
+  moveUpBtn.className = 'btn'
+  moveUpBtn.textContent = '▲'
+  moveUpBtn.title = 'Move up'
+  const moveDownBtn = document.createElement('button')
+  moveDownBtn.className = 'btn'
+  moveDownBtn.textContent = '▼'
+  moveDownBtn.title = 'Move down'
+  const removeBtn = document.createElement('button')
+  removeBtn.className = 'btn'
+  removeBtn.innerHTML = '<i class="fa-solid fa-trash" aria-hidden="true"></i> Remove'
+  assignedToolbar.appendChild(moveUpBtn)
+  assignedToolbar.appendChild(moveDownBtn)
+  assignedToolbar.appendChild(removeBtn)
+  assignedCol.appendChild(assignedToolbar)
+
+  const paramsPanel = document.createElement('div')
+  paramsPanel.className = 'stadium-assign-params'
+  assignedCol.appendChild(paramsPanel)
+
+  const previewPanel = document.createElement('div')
+  previewPanel.className = 'entry-preview-actions stadium-assign-preview'
+  assignedCol.appendChild(previewPanel)
+
+  // ---- Available column ----
+  const availableCol = document.createElement('div')
+  availableCol.className = 'stadium-assign-col'
+
+  const availableTitle = document.createElement('h4')
+  availableTitle.textContent = 'Available'
+  availableCol.appendChild(availableTitle)
+
+  const searchInput = document.createElement('input')
+  searchInput.type = 'text'
+  searchInput.className = 'search-box'
+  searchInput.placeholder = 'Search stadium folders...'
+  availableCol.appendChild(searchInput)
+
+  const availableListEl = document.createElement('div')
+  availableListEl.className = 'stadium-assign-list'
+  availableCol.appendChild(availableListEl)
+
+  const addBtn = document.createElement('button')
+  addBtn.className = 'btn'
+  addBtn.textContent = 'Add →'
+  availableCol.appendChild(addBtn)
+
+  columns.appendChild(availableCol)
+  columns.appendChild(assignedCol)
+
+  // ---- Footer ----
+  const footer = document.createElement('div')
+  footer.className = 'stadium-assign-footer'
+  const cancelBtn = document.createElement('button')
+  cancelBtn.className = 'btn'
+  cancelBtn.textContent = 'Cancel'
+  cancelBtn.addEventListener('click', () => overlay.remove())
+  const saveBtn = document.createElement('button')
+  saveBtn.className = 'btn'
+  saveBtn.style.cssText = 'color:var(--accent); border-color:var(--accent);'
+  saveBtn.textContent = 'Save'
+  footer.appendChild(cancelBtn)
+  footer.appendChild(saveBtn)
+  modal.appendChild(footer)
+
+  let availableSelectedName = null
+
+  function isAssigned(rawFolderName) {
+    const norm = normalizeStadiumItemName(rawFolderName)
+    return assigned.some((s) => normalizeStadiumItemName(s.name) === norm)
+  }
+
+  function renderAssignedList() {
+    assignedListEl.innerHTML = ''
+    if (!assigned.length) {
+      const empty = document.createElement('div')
+      empty.className = 'stadium-assign-empty'
+      empty.textContent = 'No stadiums assigned yet.'
+      assignedListEl.appendChild(empty)
+    }
+    assigned.forEach((s, idx) => {
+      const item = document.createElement('div')
+      item.className = 'stadium-assign-list-item' + (idx === selectedIdx ? ' selected' : '')
+      item.textContent = s.name
+      item.title = s.name
+      item.addEventListener('click', () => {
+        selectedIdx = idx
+        renderAll_()
+      })
+      assignedListEl.appendChild(item)
+    })
+  }
+
+  function renderParamsPanel() {
+    paramsPanel.innerHTML = ''
+    previewPanel.innerHTML = ''
+    if (selectedIdx < 0 || !assigned[selectedIdx]) {
+      const hint = document.createElement('div')
+      hint.className = 'stadium-assign-empty'
+      hint.textContent = 'Select an assigned stadium to edit its Police/Pitch/Net and preview.'
+      paramsPanel.appendChild(hint)
+      return
+    }
+    const stadium = assigned[selectedIdx]
+
+    GBD_TYPES.stadium.suffixColumns.forEach((col, colIdx) => {
+      const field = ['police', 'pitch', 'net'][colIdx]
+      const wrap = document.createElement('div')
+      wrap.className = 'stadium-assign-param'
+      const label = document.createElement('label')
+      label.textContent = col.label
+      const input = document.createElement('input')
+      input.type = 'number'
+      input.min = col.min
+      input.value = stadium[field] || '0'
+      input.addEventListener('change', () => {
+        stadium[field] = input.value.trim() || '0'
+      })
+      wrap.appendChild(label)
+      wrap.appendChild(input)
+      paramsPanel.appendChild(wrap)
+    })
+
+    const uploadBtn = document.createElement('button')
+    uploadBtn.className = 'entry-preview-btn upload'
+    uploadBtn.title = 'Upload stadium preview (PNG/JPG/JPEG)'
+    uploadBtn.innerHTML = '<i class="fa-solid fa-upload" aria-hidden="true"></i>'
+    const changeBtn = document.createElement('button')
+    changeBtn.className = 'entry-preview-btn change'
+    changeBtn.title = 'Change stadium preview (PNG/JPG/JPEG)'
+    changeBtn.innerHTML = '<i class="fa-solid fa-rotate" aria-hidden="true"></i>'
+    const deleteBtn = document.createElement('button')
+    deleteBtn.className = 'entry-preview-btn delete'
+    deleteBtn.title = 'Delete stadium preview'
+    deleteBtn.innerHTML = '<i class="fa-solid fa-trash" aria-hidden="true"></i>'
+    const openBtn = document.createElement('button')
+    openBtn.className = 'entry-preview-btn open'
+    openBtn.title = 'Open preview location'
+    openBtn.innerHTML = '<i class="fa-solid fa-folder-open" aria-hidden="true"></i>'
+
+    uploadBtn.addEventListener('click', async () => {
+      setPreviewActionBusy(previewPanel, true)
+      const saved = await uploadStadiumPreview(stadium.name)
+      setPreviewActionBusy(previewPanel, false)
+      if (saved) await updateStadiumPreviewActionsState(previewPanel, stadium.name)
+    })
+    changeBtn.addEventListener('click', async () => {
+      setPreviewActionBusy(previewPanel, true)
+      const saved = await uploadStadiumPreview(stadium.name)
+      setPreviewActionBusy(previewPanel, false)
+      if (saved) await updateStadiumPreviewActionsState(previewPanel, stadium.name)
+    })
+    deleteBtn.addEventListener('click', async () => {
+      setPreviewActionBusy(previewPanel, true)
+      const deleted = await deleteStadiumPreview(stadium.name)
+      setPreviewActionBusy(previewPanel, false)
+      if (deleted) await updateStadiumPreviewActionsState(previewPanel, stadium.name)
+    })
+    openBtn.addEventListener('click', async () => {
+      setPreviewActionBusy(previewPanel, true)
+      await openStadiumPreviewLocation(stadium.name)
+      setPreviewActionBusy(previewPanel, false)
+    })
+
+    previewPanel.appendChild(uploadBtn)
+    previewPanel.appendChild(changeBtn)
+    previewPanel.appendChild(openBtn)
+    previewPanel.appendChild(deleteBtn)
+    setPreviewActionButtonsState(previewPanel, false)
+    updateStadiumPreviewActionsState(previewPanel, stadium.name)
+  }
+
+  function renderAvailableList() {
+    availableListEl.innerHTML = ''
+    const q = availableSearch.trim().toLowerCase()
+    const all = state.gbdFolders.stadium || []
+    const filtered = all.filter((name) => !q || name.toLowerCase().includes(q))
+    if (!filtered.length) {
+      const empty = document.createElement('div')
+      empty.className = 'stadium-assign-empty'
+      empty.textContent = 'No stadium folders found.'
+      availableListEl.appendChild(empty)
+      return
+    }
+    filtered.forEach((name) => {
+      const already = isAssigned(name)
+      const item = document.createElement('div')
+      item.className = 'stadium-assign-list-item' + (already ? ' disabled' : '') + (name === availableSelectedName ? ' selected' : '')
+      item.textContent = name
+      item.title = already ? name + ' (already assigned)' : name
+      if (!already) {
+        item.addEventListener('click', () => {
+          availableSelectedName = name
+          renderAll_()
+        })
+        item.addEventListener('dblclick', () => addStadium(name))
+      }
+      availableListEl.appendChild(item)
+    })
+  }
+
+  function addStadium(rawName) {
+    if (assigned.length >= MAX_ASSIGNED_STADIUMS) {
+      toast('Maximum of ' + MAX_ASSIGNED_STADIUMS + ' stadiums reached.', 'error')
+      return
+    }
+    if (isAssigned(rawName)) return
+    assigned.push({ name: normalizeStadiumItemName(rawName), ...STADIUM_DEFAULT_TRIPLE })
+    selectedIdx = assigned.length - 1
+    availableSelectedName = null
+    renderAll_()
+  }
+
+  function renderCount() {
+    countLabel.textContent = assigned.length + ' / ' + MAX_ASSIGNED_STADIUMS + ' assigned'
+    addBtn.disabled = assigned.length >= MAX_ASSIGNED_STADIUMS
+  }
+
+  function renderAll_() {
+    renderCount()
+    renderAssignedList()
+    renderParamsPanel()
+    renderAvailableList()
+  }
+
+  moveUpBtn.addEventListener('click', () => {
+    if (selectedIdx <= 0) return
+    const [item] = assigned.splice(selectedIdx, 1)
+    assigned.splice(selectedIdx - 1, 0, item)
+    selectedIdx -= 1
+    renderAll_()
+  })
+  moveDownBtn.addEventListener('click', () => {
+    if (selectedIdx < 0 || selectedIdx >= assigned.length - 1) return
+    const [item] = assigned.splice(selectedIdx, 1)
+    assigned.splice(selectedIdx + 1, 0, item)
+    selectedIdx += 1
+    renderAll_()
+  })
+  removeBtn.addEventListener('click', () => {
+    if (selectedIdx < 0) return
+    assigned.splice(selectedIdx, 1)
+    selectedIdx = assigned.length ? Math.min(selectedIdx, assigned.length - 1) : -1
+    renderAll_()
+  })
+  searchInput.addEventListener('input', () => {
+    availableSearch = searchInput.value
+    renderAvailableList()
+  })
+  addBtn.addEventListener('click', () => {
+    if (availableSelectedName) addStadium(availableSelectedName)
+  })
+
+  saveBtn.addEventListener('click', () => {
+    const targetLines = state.sections.stadium || (state.sections.stadium = [])
+    if (!assigned.length) {
+      if (lineIdx >= 0) targetLines.splice(lineIdx, 1)
+    } else {
+      const serialized = currentId + '=' + serializeStadiumEntries(assigned)
+      if (lineIdx >= 0) {
+        targetLines[lineIdx] = serialized
+      } else {
+        targetLines.push(serialized)
+      }
+    }
+    setUnsaved(true)
+    overlay.remove()
+    renderAll()
+    toast('Stadium assignment saved for team ' + currentId, 'success')
+  })
+
+  document.body.appendChild(overlay)
+  renderAll_()
+}
+
+// ============================================================
 // SETUP / PATH UI
 // ============================================================
 document.getElementById('root-path').addEventListener('input', () => {
@@ -934,6 +1522,7 @@ document.getElementById('load-btn').addEventListener('click', async () => {
 })
 
 async function loadFromHandle(rootHandle) {
+  showLoadingOverlay('Loading settings and folders…')
   try {
     let fswDir
     let iniHandle
@@ -1014,6 +1603,8 @@ async function loadFromHandle(rootHandle) {
   } catch (e) {
     toast('Error loading: ' + e.message, 'error')
     console.error(e)
+  } finally {
+    hideLoadingOverlay()
   }
 }
 
@@ -1151,7 +1742,7 @@ function buildIni() {
   }
   const order = state.sectionOrder.length
     ? state.sectionOrder
-    : ['scoreboard', 'hometeamscoreboard', 'derbymatch', 'scoreboardstdname', 'scoreboardstdnamem', 'tvlogo', 'hometeamtvlogo', 'movies', 'teammovies', 'stadiumnetid', 'stadiumnetname', 'chantsid', 'kitsid', 'modules', 'stadium']
+    : ['scoreboard', 'hometeamscoreboard', 'derbymatch', 'scoreboardstdname', 'scoreboardstdnamem', 'tvlogo', 'hometeamtvlogo', 'movies', 'teammovies', 'stadiumnetid', 'stadiumnetname', 'chantsid', 'kitsid', 'modules', 'stadium', 'ball', 'referee', 'wipe', 'adboard']
   const written = new Set()
   for (const sec of order) {
     if (state.sections[sec] !== undefined) {
@@ -1185,6 +1776,10 @@ function getSectionName(sec) {
     hometeamscoreboard: 'hometeamscoreboard',
     derbymatch: 'derbymatch',
     hometeamtvlogo: 'hometeamtvlogo',
+    ball: 'ball',
+    referee: 'referee',
+    wipe: 'wipe',
+    adboard: 'adboard',
   }
   return map[sec] || sec
 }
@@ -1219,6 +1814,27 @@ function parseSection(secName) {
     }
     if (!trimmed.includes('=')) {
       entries.push({ type: 'label', raw: line })
+      continue
+    }
+    if (secName === 'stadium') {
+      const idMatch = trimmed.match(/^(\d+|\?\?\?)=(.*)$/)
+      if (idMatch) {
+        const id = idMatch[1]
+        const rawVal = idMatch[2].replace(/\s*;.*$/, '').trim()
+        const stadiums = parseStadiumEntries(rawVal)
+        const first = stadiums[0]
+        entries.push({
+          type: 'entry',
+          id,
+          stadiums,
+          folder: first ? first.name : '',
+          suffix: first ? ',' + first.police + ',' + first.pitch + ',' + first.net : '',
+          comment: '',
+          raw: line,
+        })
+      } else {
+        entries.push({ type: 'raw', raw: line })
+      }
       continue
     }
     const m = trimmed.match(config.suffixRegex)
@@ -1324,6 +1940,7 @@ function renderGBDTypeTabs() {
       state.viewMode = 'visual'
       renderAll()
       updateEditorHint(typeKey)
+      document.getElementById('panel-db')?.classList.toggle('stadium-mode', typeKey === 'stadium')
     })
 
     container.appendChild(tab)
@@ -1353,7 +1970,7 @@ function renderGBDTypeTabs() {
 function updateEditorHint(typeKey) {
   const cfg = GBD_TYPES[typeKey]
   const hints = {
-    stadium: 'Add stadium folders here. Set the Team ID for each entry.',
+    stadium: 'Add stadium folders here, set the Team ID for each entry, and use the list icon (or click a team in the DB panel) to assign more than one stadium to a team.',
     scoreboard: 'Add scoreboard folders. Map to scoreboard IDs. Use the By Home Team sub-tab for home team overrides.',
     scoreboardstdname: 'Scoreboard stadium names: use [scoreboardstdname] and [scoreboardstdnamem]. Enable link to mirror edits in both sections.',
     movies: 'Add movie folders for intro/outro sequences. Use sub-tabs for derby match and team-specific overrides.',
@@ -1362,6 +1979,10 @@ function updateEditorHint(typeKey) {
     chantsid: cfg?.hint || 'Raw editor for chant/goal song IDs.',
     kitsid: cfg?.hint || 'Kits - link a team ID to a kit folder.',
     stadiumnetname: cfg?.hint || 'Raw editor for stadium net names.',
+    ball: cfg?.hint,
+    referee: cfg?.hint,
+    wipe: cfg?.hint,
+    adboard: cfg?.hint,
   }
   document.getElementById('editor-hint').textContent = hints[typeKey] || 'Edit entries for this section.'
 }
@@ -1376,6 +1997,21 @@ function getAddedItems(typeKey, sectionOverride = null) {
   for (const line of lines) {
     const trimmed = line.trim()
     if (!trimmed || trimmed.startsWith(';') || trimmed.startsWith('#') || !trimmed.includes('=')) {
+      continue
+    }
+
+    if (iniSec === 'stadium') {
+      const idMatch = trimmed.match(/^(?:\d+|\?\?\?)=(.*)$/)
+      if (idMatch) {
+        const rawVal = idMatch[1].replace(/\s*;.*$/, '').trim()
+        for (const s of parseStadiumEntries(rawVal)) {
+          added.add(s.name)
+          const normalized = normalizeStadiumItemName(s.name)
+          added.add(normalized)
+          added.add(normalized + '.zip')
+          added.add(normalized + '.rar')
+        }
+      }
       continue
     }
 
@@ -1462,7 +2098,8 @@ function renderItemList(typeKey) {
   const filtered = items.filter((item) => {
     const matchSearch = !search || item.toLowerCase().includes(search)
     const matchFilter = activeFilter === 'ALL' || item.startsWith(activeFilter + ' -') || item.startsWith(activeFilter + '-')
-    return matchSearch && matchFilter
+    const matchAdded = !state.hideAddedItems || !added.has(item)
+    return matchSearch && matchFilter && matchAdded
   })
 
   document.getElementById('item-count').textContent = filtered.length
@@ -1472,7 +2109,10 @@ function renderItemList(typeKey) {
   list.innerHTML = ''
 
   if (filtered.length === 0) {
-    list.innerHTML = '<div class="empty-state"><p>No items match your search.</p></div>'
+    const msg = state.hideAddedItems && items.length > 0 && added.size === items.length
+      ? 'All items are already added.'
+      : 'No items match your search.'
+    list.innerHTML = `<div class="empty-state"><p>${msg}</p></div>`
     return
   }
 
@@ -1544,8 +2184,11 @@ function renderItemListTree(typeKey, items, added) {
   })
 
   const nodeHasMatch = (node, nodeFullPath) => {
-    if (!search) return true
-    if (nodeFullPath.toLowerCase().includes(search)) return true
+    const hasChildren = Object.keys(node).some((k) => k !== '__fullPath')
+    if (!hasChildren) {
+      if (state.hideAddedItems && added.has(node.__fullPath)) return false
+      return !search || nodeFullPath.toLowerCase().includes(search)
+    }
     return Object.keys(node).some((k) => {
       if (k === '__fullPath') return false
       const childFullPath = nodeFullPath ? nodeFullPath + '/' + k : k
@@ -1675,6 +2318,8 @@ function renderEditor() {
   const isInSubSection = typeConfig?.subSections?.includes(state.currentSection)
   const hideSortBtn = isRawOnly || state.currentType === 'stadiumnetname' || state.currentType === 'scoreboardstdname' || isInSubSection
   document.getElementById('btn-sort').style.display = hideSortBtn ? 'none' : ''
+  document.getElementById('entry-search').style.display = hideSortBtn ? 'none' : ''
+  document.getElementById('btn-chants-bulk').style.display = !hideSortBtn && state.currentType === 'chantsid' ? '' : 'none'
   const layout = document.querySelector('.main-layout')
   if (layout) {
     layout.classList.toggle('left-hidden', !hasPanel)
@@ -1805,7 +2450,7 @@ function renderSectionVisual(secName) {
     } else if (isScoreboardStdName) {
         cols = '1fr 1fr 24px'
     } else if (hasID) {
-      cols = isStadiumSection ? `75px 1fr ${suffixCols} 170px 24px` : `75px 1fr ${suffixCols} 24px`
+      cols = isStadiumSection ? `75px 1fr ${suffixCols} 170px 36px 24px` : `75px 1fr ${suffixCols} 24px`
     } else {
       cols = `1fr ${suffixCols} 24px`
     }
@@ -1851,6 +2496,7 @@ function renderSectionVisual(secName) {
   }
   if (isStadiumSection) {
     headerHTML += '<span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;">Preview</span>'
+    headerHTML += '<span></span>'
   }
   headerHTML += '<span></span>'
 
@@ -1867,6 +2513,8 @@ function renderSectionVisual(secName) {
     row.style.gridTemplateColumns = cols
     row.dataset.idx = myVisualIdx
     row.dataset.section = secName
+    const searchName = entry.stadiums?.length ? entry.stadiums.map((s) => s.name).join(' ') : entry.folder
+    row.dataset.search = [entry.id, searchName].filter(Boolean).join(' ').toLowerCase()
 
     let idInput = null
     let derbyHomeInput = null
@@ -1932,6 +2580,10 @@ function renderSectionVisual(secName) {
         idInput.addEventListener('input', updateIdClass)
         idInput.addEventListener('change', () => {
           updateIdClass()
+          if (isStadiumSection) {
+            updateStadiumEntryId(secName, myVisualIdx, idInput.value.trim())
+            return
+          }
           let sv = ''
           if (hasSuffixColumns) {
             sv = ',' + suffixInputs.map((inp) => inp.value.trim()).join(',')
@@ -1972,8 +2624,10 @@ function renderSectionVisual(secName) {
       }
     }
 
+    const stadiumMultiMode = isStadiumSection && (!entry.stadiums || entry.stadiums.length !== 1)
+
     let folderEl = null
-    if (!hideFolder || isScoreboardStdName) {
+    if ((!hideFolder || isScoreboardStdName) && !stadiumMultiMode) {
       folderEl = document.createElement('div')
       folderEl.className = 'entry-folder'
       let folderDisplay = entry.folder
@@ -1993,12 +2647,24 @@ function renderSectionVisual(secName) {
       }
     }
 
+    let stadiumSummaryEl = null
+    if (stadiumMultiMode) {
+      stadiumSummaryEl = document.createElement('div')
+      stadiumSummaryEl.className = 'entry-stadium-summary'
+      const names = (entry.stadiums || []).map((s) => s.name)
+      stadiumSummaryEl.textContent = names.length
+        ? names.length + ' stadiums: ' + names.join(', ')
+        : 'No stadium assigned'
+      stadiumSummaryEl.title = names.join(', ')
+      stadiumSummaryEl.style.gridColumn = '2 / span 5'
+    }
+
     let suffixInput = null
     let suffixInputs = []
     let suffixElements = []
     let commentInput = null
 
-    if (secConfig.suffixEditable) {
+    if (secConfig.suffixEditable && !stadiumMultiMode) {
       if (hasSuffixColumns) {
         const suffixStr = entry.suffix || secConfig.defaultSuffix
 
@@ -2136,7 +2802,7 @@ function renderSectionVisual(secName) {
     })
 
     let previewActionsEl = null
-    if (isStadiumSection) {
+    if (isStadiumSection && !stadiumMultiMode) {
       previewActionsEl = document.createElement('div')
       previewActionsEl.className = 'entry-preview-actions'
 
@@ -2195,6 +2861,17 @@ function renderSectionVisual(secName) {
       updateStadiumPreviewActionsState(previewActionsEl, entry.folder)
     }
 
+    let assignBtn = null
+    if (isStadiumSection) {
+      assignBtn = document.createElement('button')
+      assignBtn.className = 'entry-preview-btn assign'
+      assignBtn.title = 'Manage stadium assignment...'
+      assignBtn.innerHTML = '<i class="fa-solid fa-list-check" aria-hidden="true"></i>'
+      assignBtn.addEventListener('click', () => {
+        openStadiumAssignModal(entry.id, myVisualIdx)
+      })
+    }
+
     if (hideFolder) {
       commentInput = document.createElement('input')
       commentInput.type = 'text'
@@ -2214,6 +2891,7 @@ function renderSectionVisual(secName) {
       row.appendChild(idInput)
     }
     if (folderEl) row.appendChild(folderEl)
+    if (stadiumSummaryEl) row.appendChild(stadiumSummaryEl)
     if (hasSuffixColumns && suffixInputs.length) {
       suffixElements.forEach((el) => row.appendChild(el))
     } else if (suffixInput) {
@@ -2221,11 +2899,39 @@ function renderSectionVisual(secName) {
     }
     if (commentInput) row.appendChild(commentInput)
     if (previewActionsEl) row.appendChild(previewActionsEl)
+    if (assignBtn) row.appendChild(assignBtn)
     row.appendChild(delBtn)
     editorEl.appendChild(row)
   })
 
+  applyEntrySearchFilter()
   updateCounts()
+}
+
+function applyEntrySearchFilter() {
+  const searchInput = document.getElementById('entry-search')
+  const editorEl = document.getElementById('item-editor')
+  const term = searchInput.value.trim().toLowerCase()
+  const rows = editorEl.querySelectorAll('.entry-row')
+
+  let visibleCount = 0
+  rows.forEach((row) => {
+    const matches = !term || row.dataset.search.includes(term)
+    row.style.display = matches ? '' : 'none'
+    if (matches) visibleCount++
+  })
+
+  let emptyMsg = editorEl.querySelector('.entry-search-empty')
+  if (term && rows.length > 0 && visibleCount === 0) {
+    if (!emptyMsg) {
+      emptyMsg = document.createElement('div')
+      emptyMsg.className = 'empty-state entry-search-empty'
+      emptyMsg.innerHTML = '<p>No entries match your search.</p>'
+      editorEl.appendChild(emptyMsg)
+    }
+  } else if (emptyMsg) {
+    emptyMsg.remove()
+  }
 }
 
 function updateEntryLine(secName, visualIdx, newId, newSuffix, newComment) {
@@ -2263,6 +2969,28 @@ function updateEntryLine(secName, visualIdx, newId, newSuffix, newComment) {
       }
       setUnsaved(true)
       syncLinkedScoreboardSection(secName)
+      break
+    }
+    dataCount++
+  }
+}
+
+// Renames the team ID on a [stadium] line without touching the assigned
+// stadiums payload after '=' — updateEntryLine rebuilds the suffix from the
+// row's Police/Pitch/Net inputs, which don't exist for multi-stadium rows
+// and would otherwise collapse the line to a bare comma.
+function updateStadiumEntryId(secName, visualIdx, newId) {
+  const lines = state.sections[secName]
+  let dataCount = 0
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim()
+    if (!trimmed || trimmed.startsWith(';') || trimmed.startsWith('#') || !trimmed.includes('=')) continue
+    if (!trimmed.match(/^(\d+|\?\?\?)=/)) continue
+
+    if (dataCount === visualIdx) {
+      const eqIdx = lines[i].indexOf('=')
+      lines[i] = (newId || '???') + lines[i].slice(eqIdx)
+      setUnsaved(true)
       break
     }
     dataCount++
@@ -2371,6 +3099,8 @@ function renderModulesEditor() {
   document.getElementById('btn-add-all').style.display = 'none'
   document.getElementById('btn-add-entry').style.display = 'none'
   document.getElementById('btn-sort').style.display = 'none'
+  document.getElementById('entry-search').style.display = 'none'
+  document.getElementById('btn-chants-bulk').style.display = 'none'
   document.getElementById('btn-visual-view').style.display = ''
   document.getElementById('btn-raw-view').style.display = ''
   document.getElementById('btn-full-raw').style.display = ''
@@ -2676,6 +3406,10 @@ document.getElementById('btn-sort').addEventListener('click', () => {
   toast('Sorted by ID', 'success')
 })
 
+document.getElementById('entry-search').addEventListener('input', () => applyEntrySearchFilter())
+
+document.getElementById('btn-chants-bulk').addEventListener('click', () => openChantsBulkModal())
+
 function syncViewButtons() {
   const vm = state.viewMode
   const ids = {
@@ -2781,6 +3515,21 @@ rawEditor.addEventListener('keydown', (e) => {
 })
 
 document.getElementById('search-items').addEventListener('input', () => renderItemList(state.currentType))
+
+function syncToggleAddedButton() {
+  const btn = document.getElementById('btn-toggle-added')
+  if (!btn) return
+  btn.classList.toggle('active', state.hideAddedItems)
+  btn.title = state.hideAddedItems ? 'Show already added items' : 'Hide already added items'
+  btn.setAttribute('aria-label', btn.title)
+  btn.innerHTML = `<i class="fa-solid ${state.hideAddedItems ? 'fa-eye-slash' : 'fa-eye'}"></i>`
+}
+
+document.getElementById('btn-toggle-added').addEventListener('click', () => {
+  state.hideAddedItems = !state.hideAddedItems
+  syncToggleAddedButton()
+  renderItemList(state.currentType)
+})
 
 document.addEventListener('DOMContentLoaded', async () => {
   await initIndexedDB()
@@ -3544,6 +4293,8 @@ function renderStadiumAssetsPanel() {
   document.getElementById('btn-add-all').style.display = 'none'
   document.getElementById('btn-add-entry').style.display = 'none'
   document.getElementById('btn-sort').style.display = 'none'
+  document.getElementById('entry-search').style.display = 'none'
+  document.getElementById('btn-chants-bulk').style.display = 'none'
   document.getElementById('btn-visual-view').style.display = 'none'
   document.getElementById('btn-raw-view').style.display = 'none'
   document.getElementById('btn-full-raw').style.display = 'none'
