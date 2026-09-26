@@ -10,6 +10,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getState: () => ipcRenderer.invoke('db:getState'),
     getTeams: (gameRootPath) => ipcRenderer.invoke('db:getTeams', gameRootPath),
   },
+  // File access scoped to the saved game root (paths are relative to it).
+  fs: {
+    stat:      (rel) => ipcRenderer.invoke('fs:stat', rel),
+    list:      (rel) => ipcRenderer.invoke('fs:list', rel),
+    mkdir:     (rel) => ipcRenderer.invoke('fs:mkdir', rel),
+    readFile:  (rel) => ipcRenderer.invoke('fs:readFile', rel),
+    writeFile: (rel, data) => ipcRenderer.invoke('fs:writeFile', rel, data),
+    remove:    (rel) => ipcRenderer.invoke('fs:remove', rel),
+  },
   gameplay: {
     scanZip: (zipPath) => ipcRenderer.invoke('gameplay:scanZip', zipPath),
     writeToZip: (zipPath, fileType, buf) => ipcRenderer.invoke('gameplay:writeToZip', zipPath, fileType, buf),

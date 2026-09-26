@@ -1,4 +1,6 @@
 import './style.css'
+import { openParamPicker } from './paramPicker.js'
+import { createDesktopRootHandle } from './desktopFs.js'
 
 // ============================================================
 // STATE
@@ -14,10 +16,44 @@ const GBD_TYPES = {
     suffixPlaceholder: ',police,pitch,net',
     suffixRegex: /^(\d+|\?\?\?)=(.+?)(,\d+,\d+,\d+)?\s*(?:;.*)?$/,
     suffixColumns: [
-      { label: 'Police', placeholder: 'e.g. 4', type: 'spinner', min: 0},
-      { label: 'Pitch', placeholder: 'e.g. 0', type: 'spinner', min: 0},
-      { label: 'Net', placeholder: 'e.g. 0', type: 'spinner', min: 0},
+      { label: 'Police', placeholder: 'e.g. 4', type: 'spinner', min: 0, pickerKind: 'police' },
+      { label: 'Pitch', placeholder: 'e.g. 0', type: 'spinner', min: 0, pickerKind: 'pitch' },
+      { label: 'Net', placeholder: 'e.g. 0', type: 'spinner', min: 0, pickerKind: 'net' },
     ],
+  },
+  stadiumgoalpost: {
+    name: 'Goalposts',
+    rawOnly: false,
+    rawWithPanel: true,
+    path: 'StadiumGBD',
+    packPath: 'FSW/Goalpost/GoalpostModel',
+    section: 'stadiumgoalpost',
+    iniSection: 'stadiumgoalpost',
+    subSections: ['stadiumgoalposttexture'],
+    defaultSuffix: '',
+    suffixEditable: true,
+    suffixPlaceholder: 'goalpost model',
+    suffixRegex: /^(.+?)=(.*?)\s*(?:;.*)?$/,
+    hint: 'Goalposts - link a stadium to a Goalpost Model pack ([stadiumgoalpost], FSW/Goalpost/GoalpostModel) and/or a Texture pack ([stadiumgoalposttexture], FSW/Goalpost/GoalpostColor). Both are independent and can be mixed.',
+    hasID: false,
+    isScoreboardStdName: true,
+    suffixColumns: [{ label: 'Goalpost Model', placeholder: 'Model pack folder', pickerKind: 'goalpostModel' }],
+  },
+  stadiumgoalposttexture: {
+    isSubSection: true,
+    name: 'Goalpost Textures',
+    tabLabel: 'Texture',
+    path: 'StadiumGBD',
+    packPath: 'FSW/Goalpost/GoalpostColor',
+    section: 'stadiumgoalposttexture',
+    iniSection: 'stadiumgoalposttexture',
+    defaultSuffix: '',
+    suffixEditable: true,
+    suffixPlaceholder: 'goalpost texture',
+    suffixRegex: /^(.+?)=(.*?)\s*(?:;.*)?$/,
+    hasID: false,
+    isScoreboardStdName: true,
+    suffixColumns: [{ label: 'Goalpost Texture', placeholder: 'Texture pack folder', pickerKind: 'goalpostTexture' }],
   },
   scoreboard: {
     name: 'Scoreboards',
@@ -241,12 +277,12 @@ const state = {
   iniHandle: null,
   iniContent: '',
   gbdFolders: {},
+  gbdPacks: {},
   sections: {},
   currentType: 'stadium',
   currentSection: 'stadium',
   rawSection: null,
   viewMode: 'visual',
-  scoreboardStdSectionsLinked: true,
   unsaved: false,
   selectedItems: {},
   db: {
@@ -271,7 +307,7 @@ const state = {
 }
 
 const isDesktopApp = !!window.electronAPI?.isDesktop
-const SCOREBOARD_STD_SECTIONS = ['scoreboardstdname', 'scoreboardstdnamem']
+const SCOREBOARD_STD_SECTIONS = ['scoreboardstdname']
 
 function isScoreboardStdSection(secName) {
   return SCOREBOARD_STD_SECTIONS.includes(secName)
@@ -285,28 +321,6 @@ function getTypeSections(typeKey) {
 
 function getDefaultSectionForType(typeKey) {
   return getTypeSections(typeKey)[0]
-}
-
-function getLinkedScoreboardStdSection(secName) {
-  if (!isScoreboardStdSection(secName)) return null
-  return secName === 'scoreboardstdname' ? 'scoreboardstdnamem' : 'scoreboardstdname'
-}
-
-function syncLinkedScoreboardSection(sourceSection) {
-  if (!state.scoreboardStdSectionsLinked || !isScoreboardStdSection(sourceSection)) return false
-
-  const targetSection = getLinkedScoreboardStdSection(sourceSection)
-  if (!targetSection) return false
-
-  const sourceLines = [...(state.sections[sourceSection] || [])]
-  const targetLines = state.sections[targetSection] || []
-  const targetBefore = targetLines.join('\n')
-  const sourceNow = sourceLines.join('\n')
-
-  if (targetBefore === sourceNow) return false
-
-  state.sections[targetSection] = sourceLines
-  return true
 }
 
 function setDbStatus(message, type = '') {
@@ -389,12 +403,6 @@ function getDraggedTeamId(dataTransfer) {
   return dataTransfer.getData('application/x-cgfs-team-id') || dataTransfer.getData('text/plain') || ''
 }
 
-function updatePickRootBtnGlow() {
-  const btn = document.getElementById('db-pick-root')
-  if (!btn) return
-  btn.classList.toggle('needs-root', !state.db.gameRootPath)
-}
-
 function showLoadingOverlay(text = 'Loading...') {
   const lbl = document.getElementById('loading-label')
   if (lbl) lbl.textContent = text
@@ -406,7 +414,6 @@ function hideLoadingOverlay() {
 }
 
 function renderDbTeams() {
-  updatePickRootBtnGlow()
   const body = document.getElementById('db-teams-body')
   const countEl = document.getElementById('db-teams-count')
   if (!body || !countEl) return
@@ -450,14 +457,16 @@ function renderDbTeams() {
   })
 }
 
-async function loadDbTeams(explicitRootPath = '') {
+// silent skips the blocking overlay, for loads that run in the background
+// while the editor is already usable (the DB read takes a few seconds).
+async function loadDbTeams(explicitRootPath = '', { silent = false } = {}) {
   if (!isDesktopApp || !window.electronAPI?.db?.getTeams) {
     setDbStatus('DB panel is available only in Desktop (Electron).', 'err')
     return
   }
 
   state.db.loading = true
-  showLoadingOverlay('Loading DB...')
+  if (!silent) showLoadingOverlay('Loading DB...')
   setDbStatus('Loading teams from FIFA DB...')
 
   try {
@@ -474,24 +483,72 @@ async function loadDbTeams(explicitRootPath = '') {
     setDbStatus('DB load failed: ' + (e?.message || e), 'err')
   } finally {
     state.db.loading = false
-    hideLoadingOverlay()
+    if (!silent) hideLoadingOverlay()
   }
 }
 
-async function pickGameRootForDb() {
-  if (!isDesktopApp || !window.electronAPI?.pickGameRoot) {
-    setDbStatus('Desktop-only feature: use Electron app build.', 'err')
+// Desktop: one game root drives everything. The main process keeps the path
+// (persisted across launches) and serves file access for it, so the editor's
+// folder handle and the DB reader always point at the same folder.
+function applyDesktopRoot(rootPath) {
+  state.db.gameRootPath = rootPath
+  state.rootHandle = createDesktopRootHandle(rootPath)
+
+  const input = document.getElementById('root-path')
+  input.value = rootPath
+  input.classList.add('ok')
+  const status = document.getElementById('root-status')
+  status.textContent = 'Folder selected: ' + rootPath
+  status.className = 'path-status ok'
+  updatePreviews()
+}
+
+// Commits rootPath as the game root only if it holds FSW\settings.ini;
+// otherwise the previous root (and its saved copy) is restored.
+async function connectDesktopRoot(rootPath) {
+  const previous = state.db.gameRootPath
+  await window.electronAPI.db.setGameRoot(rootPath)
+  try {
+    const fswDir = await createDesktopRootHandle(rootPath).getDirectoryHandle('FSW')
+    await fswDir.getFileHandle('settings.ini')
+  } catch (e) {
+    if (previous) await window.electronAPI.db.setGameRoot(previous)
+    else await window.electronAPI.db.clearGameRoot()
+    toast('Could not find FSW\\settings.ini in the selected folder', 'error')
+    return false
+  }
+
+  applyDesktopRoot(rootPath)
+  loadDbTeams(rootPath, { silent: true })
+  return true
+}
+
+// Reopens the game root saved from the previous session straight into the
+// editor, with no folder prompt.
+async function autoConnectSavedGameRoot() {
+  if (!isDesktopApp || !window.electronAPI?.db?.getState) return
+
+  let saved
+  try {
+    saved = await window.electronAPI.db.getState()
+  } catch (e) {
     return
   }
 
-  try {
-    const picked = await window.electronAPI.pickGameRoot()
-    if (!picked || picked.canceled) return
-    state.db.gameRootPath = picked.gameRootPath || ''
-    await window.electronAPI.db.setGameRoot(state.db.gameRootPath)
-    await loadDbTeams(state.db.gameRootPath)
-  } catch (e) {
-    setDbStatus('Could not select game root: ' + (e?.message || e), 'err')
+  if (!saved?.hasGameRoot) {
+    if (saved?.savedGameRootPath) {
+      document.getElementById('root-path').value = saved.savedGameRootPath
+      const status = document.getElementById('root-status')
+      status.textContent = 'Saved game folder not found. Browse to select it again.'
+      status.className = 'path-status err'
+      updatePreviews()
+    }
+    return
+  }
+
+  applyDesktopRoot(saved.gameRootPath)
+  if (await loadFromHandle(state.rootHandle)) {
+    loadDbTeams(saved.gameRootPath, { silent: true })
   }
 }
 
@@ -501,7 +558,6 @@ async function initDbPanel() {
 
   const toggleBtn = document.getElementById('db-toggle')
   const refreshBtn = document.getElementById('db-refresh')
-  const pickRootBtn = document.getElementById('db-pick-root')
   const searchInput = document.getElementById('db-search')
 
   toggleBtn?.addEventListener('click', () => {
@@ -514,31 +570,22 @@ async function initDbPanel() {
     loadDbTeams()
   })
 
-  pickRootBtn?.addEventListener('click', () => {
-    pickGameRootForDb()
-  })
-
   searchInput?.addEventListener('input', (e) => {
     state.db.search = e.target.value || ''
     applyDbFilter()
     renderDbTeams()
   })
 
-  if (!isDesktopApp || !window.electronAPI?.db?.clearGameRoot) {
+  if (!isDesktopApp || !window.electronAPI?.db?.getState) {
     setDbStatus('DB panel is available only in Desktop (Electron).', 'err')
     return
   }
 
-  try {
-    state.db.gameRootPath = ''
-    state.db.teams = []
-    applyDbFilter()
-    renderDbTeams()
-    await window.electronAPI.db.clearGameRoot?.()
-    setDbStatus('Desktop DB reader ready. Select your FIFA 16 root folder.')
-  } catch (e) {
-    setDbStatus('Could not initialize DB reader: ' + (e?.message || e), 'err')
-  }
+  // The saved game root is reconnected by autoConnectSavedGameRoot().
+  state.db.teams = []
+  applyDbFilter()
+  renderDbTeams()
+  setDbStatus('Desktop DB reader ready.')
 }
 
 async function resetDbPanelState(statusMessage = 'DB reset. Select your FIFA 16 root folder for database teams.') {
@@ -649,6 +696,8 @@ async function requestHandlePermission(handle) {
 }
 
 function showLastPathSuggestion() {
+  // Desktop reconnects to the saved game root on launch, so there is nothing to suggest.
+  if (isDesktopApp) return
   const lastPath = getLastPath()
   const suggestionEl = document.getElementById('last-path-suggestion')
   if (!lastPath || !suggestionEl) return
@@ -728,6 +777,8 @@ function usesPackedStadiumItems(typeKey) {
   return (
     typeKey === 'stadium' ||
     typeKey === 'scoreboardstdname' ||
+    typeKey === 'stadiumgoalpost' ||
+    typeKey === 'stadiumgoalposttexture' ||
     typeKey === 'stadiumnetname' ||
     typeKey === 'scoreboard' ||
     typeKey === 'hometeamscoreboard'
@@ -875,6 +926,7 @@ async function deleteStadiumPreview(stadiumFolderName) {
       toast('No preview found to delete.', '')
       return false
     }
+    if (!confirm(`Delete the preview "${existingFileName}"? This cannot be undone.`)) return false
     await clearStadiumPreviewVariants(stadiumPreviewDir, safeBaseName)
     toast('Preview deleted: ' + existingFileName, 'success')
     return true
@@ -882,6 +934,136 @@ async function deleteStadiumPreview(stadiumFolderName) {
     toast('Could not delete preview: ' + (e?.message || e), 'error')
     return false
   }
+}
+
+// ============================================================
+// PARAM PICKER (visual grid for police / pitch / net / goalposts)
+// ============================================================
+// 'ids' kinds are numeric ids backed by <id>.png previews in FSW/Images/<x>,
+// with the raw FSW/<x> pack files as a fallback source of ids (no preview).
+// 'folders' kinds are named pack folders that may ship a preview image.
+const PARAM_PICKER_KINDS = {
+  police: {
+    title: 'Police',
+    mode: 'ids',
+    dirs: ['FSW/Images/Police', 'FSW/Police'],
+    rawId: /^policeofficer_(\d+)_/i,
+  },
+  pitch: {
+    title: 'Pitch Mow Pattern',
+    mode: 'ids',
+    dirs: ['FSW/Images/PitchMowPattern', 'FSW/PitchMowPattern'],
+    rawId: /^pitchmowpattern_(\d+)_/i,
+  },
+  net: {
+    title: 'Net',
+    mode: 'ids',
+    dirs: ['FSW/Images/Nets', 'FSW/Nets'],
+    rawId: /^netcolor_(\d+)_/i,
+  },
+  goalpostModel: {
+    title: 'Goalpost Model',
+    mode: 'folders',
+    dirs: ['FSW/Goalpost/GoalpostModel'],
+  },
+  goalpostTexture: {
+    title: 'Goalpost Texture',
+    mode: 'folders',
+    dirs: ['FSW/Goalpost/GoalpostColor'],
+  },
+}
+
+async function getDirectoryByPath(path) {
+  let dir = state.rootHandle
+  try {
+    for (const part of path.split('/')) dir = await dir.getDirectoryHandle(part)
+    return dir
+  } catch (e) {
+    return null
+  }
+}
+
+async function loadParamPickerOptions(kind) {
+  const cfg = PARAM_PICKER_KINDS[kind]
+  if (!cfg || !state.rootHandle) return []
+
+  if (cfg.mode === 'folders') {
+    const baseDir = await getDirectoryByPath(cfg.dirs[0])
+    if (!baseDir) return []
+    const options = []
+    for await (const entry of baseDir.values()) {
+      if (entry.kind !== 'directory') continue
+      options.push({
+        value: entry.name,
+        getPreview: async () => {
+          for (const fileName of ['preview.png', 'preview.jpg', 'preview.jpeg']) {
+            try {
+              return await (await entry.getFileHandle(fileName)).getFile()
+            } catch (e) {
+              // try next extension
+            }
+          }
+          return null
+        },
+      })
+    }
+    return options.sort((a, b) => a.value.localeCompare(b.value, undefined, { numeric: true }))
+  }
+
+  const found = new Map()
+  for (const dirPath of cfg.dirs) {
+    const dir = await getDirectoryByPath(dirPath)
+    if (!dir) continue
+    for await (const entry of dir.values()) {
+      if (entry.kind !== 'file') continue
+      const imageMatch = entry.name.match(/^(\d+)\.(png|jpe?g)$/i)
+      if (imageMatch) {
+        const id = imageMatch[1]
+        if (!found.get(id)?.imageHandle) found.set(id, { imageHandle: entry })
+        continue
+      }
+      const rawMatch = entry.name.match(cfg.rawId)
+      if (rawMatch && !found.has(rawMatch[1])) found.set(rawMatch[1], { imageHandle: null })
+    }
+  }
+  return [...found.entries()]
+    .sort((a, b) => Number(a[0]) - Number(b[0]))
+    .map(([id, { imageHandle }]) => ({
+      value: id,
+      getPreview: imageHandle ? () => imageHandle.getFile() : null,
+    }))
+}
+
+async function openParamPickerFor(kind, current, onSelect) {
+  if (!state.rootHandle) {
+    toast('Load the FIFA root folder first.', 'error')
+    return
+  }
+  const cfg = PARAM_PICKER_KINDS[kind]
+  const options = await loadParamPickerOptions(kind)
+  if (!options.length) {
+    toast('No ' + cfg.title.toLowerCase() + ' assets found in ' + cfg.dirs[0] + '.', 'error')
+    return
+  }
+  openParamPicker({ title: cfg.title, options, current: String(current ?? '').trim(), onSelect })
+}
+
+function createParamPickerButton(kind, getCurrent, onSelect) {
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'param-pick-btn'
+  btn.title = 'Pick ' + PARAM_PICKER_KINDS[kind].title.toLowerCase() + ' visually'
+  btn.setAttribute('aria-label', btn.title)
+  btn.innerHTML = '<i class="fa-solid fa-pencil" aria-hidden="true"></i>'
+  btn.addEventListener('click', () => openParamPickerFor(kind, getCurrent(), onSelect))
+  return btn
+}
+
+// Sets a text/number control from a picker choice and fires 'change' so the
+// field's own save handler runs, exactly as if it had been typed.
+function applyPickedValue(control, value) {
+  control.value = value
+  control.dispatchEvent(new Event('change', { bubbles: true }))
 }
 
 function hasGameRoot() {
@@ -907,7 +1089,7 @@ async function openStadiumPreviewLocation(stadiumFolderName) {
 
   const gameRoot = getGameRootPathForDesktopActions()
   if (!gameRoot) {
-    toast('Set the Game root path on the DB panel to open preview location.', 'error')
+    toast('Game folder not set. Use "Change Paths" to select it.', 'error')
     return false
   }
 
@@ -1220,7 +1402,6 @@ function openStadiumAssignModal(teamId, visualIdx = null) {
 
   const previewPanel = document.createElement('div')
   previewPanel.className = 'entry-preview-actions stadium-assign-preview'
-  assignedCol.appendChild(previewPanel)
 
   // ---- Available column ----
   const availableCol = document.createElement('div')
@@ -1244,6 +1425,7 @@ function openStadiumAssignModal(teamId, visualIdx = null) {
   addBtn.className = 'btn'
   addBtn.textContent = 'Add →'
   availableCol.appendChild(addBtn)
+  availableCol.appendChild(previewPanel)
 
   columns.appendChild(availableCol)
   columns.appendChild(assignedCol)
@@ -1318,8 +1500,15 @@ function openStadiumAssignModal(teamId, visualIdx = null) {
       })
       wrap.appendChild(label)
       wrap.appendChild(input)
+      if (col.pickerKind) {
+        wrap.appendChild(createParamPickerButton(col.pickerKind, () => input.value, (v) => applyPickedValue(input, v)))
+      }
       paramsPanel.appendChild(wrap)
     })
+
+    const previewLabel = document.createElement('span')
+    previewLabel.className = 'stadium-assign-preview-label'
+    previewLabel.textContent = 'Stadium preview'
 
     const uploadBtn = document.createElement('button')
     uploadBtn.className = 'entry-preview-btn upload'
@@ -1362,6 +1551,7 @@ function openStadiumAssignModal(teamId, visualIdx = null) {
       setPreviewActionBusy(previewPanel, false)
     })
 
+    previewPanel.appendChild(previewLabel)
     previewPanel.appendChild(uploadBtn)
     previewPanel.appendChild(changeBtn)
     previewPanel.appendChild(openBtn)
@@ -1492,6 +1682,19 @@ function updatePreviews() {
 updatePreviews()
 
 document.getElementById('browse-root').addEventListener('click', async () => {
+  if (isDesktopApp && window.electronAPI?.pickGameRoot) {
+    try {
+      const picked = await window.electronAPI.pickGameRoot()
+      if (!picked || picked.canceled) return
+      if (await connectDesktopRoot(picked.gameRootPath)) {
+        toast('Root folder selected: ' + state.rootHandle.name, 'success')
+      }
+    } catch (e) {
+      toast('Could not open folder: ' + (e?.message || e), 'error')
+    }
+    return
+  }
+
   if (!window.showDirectoryPicker) {
     toast('File System Access API not supported. Please use Chrome or Edge.', 'error')
     return
@@ -1531,7 +1734,7 @@ async function loadFromHandle(rootHandle) {
       iniHandle = await fswDir.getFileHandle('settings.ini')
     } catch (e) {
       toast('Could not find FSW\\settings.ini in the selected folder', 'error')
-      return
+      return false
     }
 
     const file = await iniHandle.getFile()
@@ -1540,6 +1743,7 @@ async function loadFromHandle(rootHandle) {
     parseIni(state.iniContent)
 
     state.gbdFolders = {}
+    state.gbdPacks = {}
     let totalLoaded = 0
 
     async function loadFoldersRecursive(dir, prefix = '') {
@@ -1593,6 +1797,21 @@ async function loadFromHandle(rootHandle) {
       }
     }
 
+    for (const [typeKey, typeConfig] of Object.entries(GBD_TYPES)) {
+      if (!typeConfig.packPath) continue
+      state.gbdPacks[typeKey] = []
+      try {
+        let dir = rootHandle
+        for (const part of typeConfig.packPath.split('/')) dir = await dir.getDirectoryHandle(part)
+        for await (const entry of dir.values()) {
+          if (entry.kind === 'directory') state.gbdPacks[typeKey].push(entry.name)
+        }
+        state.gbdPacks[typeKey].sort()
+      } catch (e) {
+        // pack folder missing: dropdown stays empty
+      }
+    }
+
     for (const typeKey of Object.keys(GBD_TYPES)) {
       state.selectedItems[typeKey] = new Set()
     }
@@ -1600,9 +1819,11 @@ async function loadFromHandle(rootHandle) {
     showApp()
     renderAll()
     toast('Loaded ' + totalLoaded + ' items - settings.ini ready', 'success')
+    return true
   } catch (e) {
     toast('Error loading: ' + e.message, 'error')
     console.error(e)
+    return false
   } finally {
     hideLoadingOverlay()
   }
@@ -1742,7 +1963,7 @@ function buildIni() {
   }
   const order = state.sectionOrder.length
     ? state.sectionOrder
-    : ['scoreboard', 'hometeamscoreboard', 'derbymatch', 'scoreboardstdname', 'scoreboardstdnamem', 'tvlogo', 'hometeamtvlogo', 'movies', 'teammovies', 'stadiumnetid', 'stadiumnetname', 'chantsid', 'kitsid', 'modules', 'stadium', 'ball', 'referee', 'wipe', 'adboard']
+    : ['scoreboard', 'hometeamscoreboard', 'derbymatch', 'scoreboardstdname', 'tvlogo', 'hometeamtvlogo', 'movies', 'teammovies', 'stadiumnetid', 'stadiumnetname', 'chantsid', 'kitsid', 'modules', 'stadium', 'stadiumgoalpost', 'stadiumgoalposttexture', 'ball', 'referee', 'wipe', 'adboard']
   const written = new Set()
   for (const sec of order) {
     if (state.sections[sec] !== undefined) {
@@ -1769,7 +1990,6 @@ function getSectionName(sec) {
     movies: 'movies',
     scoreboard: 'scoreboard',
     scoreboardstdname: 'scoreboardstdname',
-    scoreboardstdnamem: 'scoreboardstdnamem',
     stadium: 'stadium',
     teammovies: 'TeamMovies',
     modules: 'modules',
@@ -1789,9 +2009,6 @@ function getSectionLines(sec) {
 }
 
 function getSectionConfig(secName) {
-  if (secName === 'scoreboardstdnamem') {
-    return GBD_TYPES.scoreboardstdname
-  }
   return (
     Object.values(GBD_TYPES).find((t) => t.iniSection === secName) || {
       suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
@@ -1972,7 +2189,8 @@ function updateEditorHint(typeKey) {
   const hints = {
     stadium: 'Add stadium folders here, set the Team ID for each entry, and use the list icon (or click a team in the DB panel) to assign more than one stadium to a team.',
     scoreboard: 'Add scoreboard folders. Map to scoreboard IDs. Use the By Home Team sub-tab for home team overrides.',
-    scoreboardstdname: 'Scoreboard stadium names: use [scoreboardstdname] and [scoreboardstdnamem]. Enable link to mirror edits in both sections.',
+    scoreboardstdname: 'Scoreboard stadium names: use [scoreboardstdname].',
+    stadiumgoalpost: cfg?.hint,
     movies: 'Add movie folders for intro/outro sequences. Use sub-tabs for derby match and team-specific overrides.',
     tvlogo: 'Add TV logo folders. Use the By Home Team sub-tab for home team overrides.',
     stadiumnetid: 'Editor for stadium net IDs. Format: stadiumID=downDeep,highDeep,rig,shape',
@@ -2345,35 +2563,6 @@ function renderEditor() {
 
   if (state.currentType === 'scoreboardstdname') {
     createSectionTab('scoreboardstdname')
-
-    const linkBtn = document.createElement('button')
-    linkBtn.type = 'button'
-    linkBtn.className = 'section-tab-link-toggle' + (state.scoreboardStdSectionsLinked ? ' linked' : '')
-    linkBtn.innerHTML = state.scoreboardStdSectionsLinked
-      ? '<i class="fa-solid fa-link" aria-hidden="true"></i>'
-      : '<i class="fa-solid fa-link-slash" aria-hidden="true"></i>'
-    linkBtn.setAttribute('aria-label', state.scoreboardStdSectionsLinked ? 'Linked tabs' : 'Unlinked tabs')
-    linkBtn.title = state.scoreboardStdSectionsLinked
-      ? 'Unlink tabs: each section can be edited independently.'
-      : 'Link tabs: changes in one section are mirrored to the other.'
-    linkBtn.addEventListener('click', () => {
-      state.scoreboardStdSectionsLinked = !state.scoreboardStdSectionsLinked
-      if (state.scoreboardStdSectionsLinked) {
-        const changed = syncLinkedScoreboardSection(state.currentSection)
-        if (changed) {
-          setUnsaved(true)
-          toast('Tabs linked. Current section copied to the other tab.', 'success')
-        } else {
-          toast('Tabs linked.', 'success')
-        }
-      } else {
-        toast('Tabs unlinked.', 'info')
-      }
-      renderEditor()
-    })
-    tabsContainer.appendChild(linkBtn)
-
-    createSectionTab('scoreboardstdnamem')
   } else if (typeConfig?.subSections?.length) {
     createSectionTab(typeConfig.iniSection)
     for (const subSec of typeConfig.subSections) {
@@ -2758,6 +2947,14 @@ function renderSectionVisual(secName) {
             domEl = control
           }
 
+          if (col.pickerKind) {
+            const pickerWrap = document.createElement('div')
+            pickerWrap.className = 'entry-picker-wrap'
+            pickerWrap.appendChild(domEl)
+            pickerWrap.appendChild(createParamPickerButton(col.pickerKind, () => control.value, (v) => applyPickedValue(control, v)))
+            domEl = pickerWrap
+          }
+
           control.addEventListener('change', () => {
             let newSuffix
             if (secConfig.isScoreboardStdName) {
@@ -2968,7 +3165,6 @@ function updateEntryLine(secName, visualIdx, newId, newSuffix, newComment) {
         lines[i] = targetEntry.folder + '=' + suffix
       }
       setUnsaved(true)
-      syncLinkedScoreboardSection(secName)
       break
     }
     dataCount++
@@ -3032,7 +3228,11 @@ function addItemsToSection(typeKey, items) {
   toAdd.forEach((item) => {
     const itemToWrite = getComparableItemName(typeKey, item)
     if (typeConfig.isScoreboardStdName) {
-      state.sections[iniSec].push(itemToWrite + '=' + itemToWrite + defaultSuffix)
+      if (activeCfg.packPath) {
+        state.sections[iniSec].push(itemToWrite + '=' + (state.gbdPacks[iniSec]?.[0] || ''))
+      } else {
+        state.sections[iniSec].push(itemToWrite + '=' + itemToWrite + defaultSuffix)
+      }
     } else if (activeCfg.isDerbyMatch) {
       state.sections[iniSec].push('???vs???=' + itemToWrite + defaultSuffix)
     } else if (hasID) {
@@ -3049,7 +3249,6 @@ function addItemsToSection(typeKey, items) {
   })
 
   state.selectedItems[typeKey].clear()
-  syncLinkedScoreboardSection(iniSec)
   setUnsaved(true)
   renderAll()
   toast('Added ' + toAdd.length + ' item' + (toAdd.length > 1 ? 's' : ''), 'success')
@@ -3083,7 +3282,6 @@ function removeEntry(secName, visualIdx) {
   }
 
   setUnsaved(true)
-  syncLinkedScoreboardSection(secName)
   renderAll()
 }
 
@@ -3456,7 +3654,6 @@ function commitRawContent() {
   if (state.rawSection) {
     const lines = content.split('\n')
     state.sections[state.rawSection] = lines.slice(1)
-    syncLinkedScoreboardSection(state.rawSection)
   } else {
     parseIni(content)
   }
@@ -3493,7 +3690,6 @@ rawEditor.addEventListener('input', () => {
     if (state.rawSection) {
       const lines = content.split('\n')
       state.sections[state.rawSection] = lines.slice(1)
-      syncLinkedScoreboardSection(state.rawSection)
     } else {
       parseIni(content)
     }
@@ -3542,6 +3738,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     persistLeftPanelState()
     syncLeftPanelLayout()
   })
+  await autoConnectSavedGameRoot()
 })
 
 document.getElementById('btn-load-suggestion').addEventListener('click', async () => {
@@ -3802,7 +3999,7 @@ async function addStadiumAssetFile(stadiumName, category, fileKey, sourceBuffer)
   }
   const gameRoot = getGameRootPathForDesktopActions()
   if (!gameRoot) {
-    toast('Set the Game root path in the DB panel to modify archives.', 'error')
+    toast('Game folder not set. Use "Change Paths" to select it.', 'error')
     return false
   }
 
@@ -3851,7 +4048,7 @@ async function removeStadiumAssetFile(stadiumName, category, fileKey) {
   }
   const gameRoot = getGameRootPathForDesktopActions()
   if (!gameRoot) {
-    toast('Set the Game root path in the DB panel to modify archives.', 'error')
+    toast('Game folder not set. Use "Change Paths" to select it.', 'error')
     return false
   }
 
@@ -4615,7 +4812,7 @@ function renderStadiumAssetsPanel() {
         convertBtn.className = 'btn'
         convertBtn.textContent = 'Convert to ZIP'
         convertBtn.disabled = !canConvert
-        if (!canConvert) convertBtn.title = 'Set the game root path in the DB panel first'
+        if (!canConvert) convertBtn.title = 'Game folder not set (use Change Paths)'
         convertBtn.addEventListener('click', (e) => {
           e.stopPropagation()
           convertStadiumRarToZip(stadiumName)
@@ -4627,7 +4824,7 @@ function renderStadiumAssetsPanel() {
         openBtn.className = 'btn sa-open-btn'
         openBtn.textContent = 'Open'
         openBtn.disabled = !canEditRow
-        if (isZip && !canEditRow) openBtn.title = 'Set the game root path in the DB panel to edit archive stadiums'
+        if (isZip && !canEditRow) openBtn.title = 'Game folder not set (use Change Paths) to edit archive stadiums'
         openBtn.addEventListener('click', (e) => {
           e.stopPropagation()
           if (canEditRow) openStadiumAssetsModal(stadiumName)

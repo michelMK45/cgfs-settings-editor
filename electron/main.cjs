@@ -62,19 +62,51 @@ function isValidRoot(gameRootPath) {
   return typeof gameRootPath === 'string' && gameRootPath.trim().length > 1
 }
 
+function isDirectory(targetPath) {
+  try { return fs.statSync(targetPath).isDirectory() } catch (_) { return false }
+}
+
+// ============================================================
+// PERSISTED GAME ROOT
+// The chosen game root is remembered in userData so the next launch reconnects
+// without asking again.
+// ============================================================
+function getConfigPath() {
+  return path.join(app.getPath('userData'), 'config.json')
+}
+
+function readConfig() {
+  try { return JSON.parse(fs.readFileSync(getConfigPath(), 'utf8')) } catch (_) { return {} }
+}
+
+function writeConfig(patch) {
+  try {
+    fs.mkdirSync(path.dirname(getConfigPath()), { recursive: true })
+    fs.writeFileSync(getConfigPath(), JSON.stringify({ ...readConfig(), ...patch }, null, 2))
+  } catch (e) {
+    console.warn('Could not persist config:', e.message)
+  }
+}
+
+function restoreSavedGameRoot() {
+  const saved = readConfig().gameRootPath
+  if (isValidRoot(saved) && isDirectory(saved)) dbState.gameRootPath = saved
+}
+
 ipcMain.handle('app:pickGameRoot', async () => {
   const result = await dialog.showOpenDialog({
     properties: ['openDirectory'],
     title: 'Select FIFA 16 Root Folder',
+    defaultPath: dbState.gameRootPath || undefined,
   })
 
   if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
     return { canceled: true }
   }
 
-  const selectedPath = result.filePaths[0]
-  dbState.gameRootPath = selectedPath
-  return { canceled: false, gameRootPath: selectedPath }
+  // Only picks: the renderer commits the choice through db:setGameRoot once it
+  // has validated the folder, so a wrong pick never overwrites the saved root.
+  return { canceled: false, gameRootPath: result.filePaths[0] }
 })
 
 ipcMain.handle('app:openPath', async (_event, maybeTargetPath) => {
@@ -105,7 +137,13 @@ ipcMain.handle('db:setGameRoot', async (_event, gameRootPath) => {
     throw new Error('Invalid game root path.')
   }
 
-  dbState.gameRootPath = gameRootPath.trim()
+  const trimmed = gameRootPath.trim()
+  if (!isDirectory(trimmed)) {
+    throw new Error('Folder not found: ' + trimmed)
+  }
+
+  dbState.gameRootPath = trimmed
+  writeConfig({ gameRootPath: trimmed })
   return { ok: true, gameRootPath: dbState.gameRootPath }
 })
 
@@ -114,11 +152,14 @@ ipcMain.handle('db:getState', async () => {
     isDesktop: true,
     gameRootPath: dbState.gameRootPath,
     hasGameRoot: !!dbState.gameRootPath,
+    // Path remembered from a previous session, even if it no longer exists.
+    savedGameRootPath: readConfig().gameRootPath || '',
   }
 })
 
 ipcMain.handle('db:clearGameRoot', async () => {
   dbState.gameRootPath = ''
+  writeConfig({ gameRootPath: '' })
   return { ok: true }
 })
 
@@ -136,6 +177,77 @@ ipcMain.handle('db:getTeams', async (_event, maybeGameRootPath) => {
     teams,
     gameRootPath,
   }
+})
+
+// ============================================================
+// GAME ROOT FILE ACCESS
+// Backs the renderer's directory-handle shim (src/desktopFs.js). Every path is
+// relative to the game root held here, never supplied by the renderer, and may
+// not resolve outside it.
+// ============================================================
+function resolveInGameRoot(relPath) {
+  if (!isValidRoot(dbState.gameRootPath)) {
+    throw new Error('Game root path not set.')
+  }
+  const root = path.resolve(dbState.gameRootPath)
+  const target = path.resolve(root, String(relPath || ''))
+  const rel = path.relative(root, target)
+  if (rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) {
+    throw new Error('Path is outside the game root: ' + relPath)
+  }
+  return target
+}
+
+// Follows symlinks/junctions, like the File System Access API does.
+async function statKind(targetPath) {
+  try {
+    const stats = await fs.promises.stat(targetPath)
+    return stats.isDirectory() ? 'directory' : 'file'
+  } catch (_) {
+    return null
+  }
+}
+
+ipcMain.handle('fs:stat', async (_event, relPath) => {
+  const kind = await statKind(resolveInGameRoot(relPath))
+  return kind ? { kind } : null
+})
+
+ipcMain.handle('fs:list', async (_event, relPath) => {
+  const dirPath = resolveInGameRoot(relPath)
+  const dirents = await fs.promises.readdir(dirPath, { withFileTypes: true })
+  const entries = []
+  for (const dirent of dirents) {
+    const kind = dirent.isSymbolicLink()
+      ? await statKind(path.join(dirPath, dirent.name))
+      : dirent.isDirectory() ? 'directory' : 'file'
+    if (kind) entries.push({ name: dirent.name, kind })
+  }
+  return entries
+})
+
+ipcMain.handle('fs:mkdir', async (_event, relPath) => {
+  await fs.promises.mkdir(resolveInGameRoot(relPath), { recursive: true })
+  return { ok: true }
+})
+
+ipcMain.handle('fs:readFile', async (_event, relPath) => {
+  return fs.promises.readFile(resolveInGameRoot(relPath))
+})
+
+ipcMain.handle('fs:writeFile', async (_event, relPath, data) => {
+  const bytes = typeof data === 'string' ? data : Buffer.from(data)
+  await fs.promises.writeFile(resolveInGameRoot(relPath), bytes)
+  return { ok: true }
+})
+
+// Like FileSystemDirectoryHandle.removeEntry: files, or empty directories only.
+ipcMain.handle('fs:remove', async (_event, relPath) => {
+  const target = resolveInGameRoot(relPath)
+  const kind = await statKind(target)
+  if (kind === 'directory') await fs.promises.rmdir(target)
+  else await fs.promises.unlink(target)
+  return { ok: true }
 })
 
 // ============================================================
@@ -466,7 +578,7 @@ ipcMain.handle('stadiumAssets:writeToZip', async (_event, zipPath, category, fil
   const dir = STADIUM_ASSET_DIRS[category]
   const fileName = STADIUM_ASSET_FILES[category]?.[fileKey]
   if (!dir || !fileName) throw new Error(`Unknown category/key: ${category}/${fileKey}`)
-  if (!fs.existsSync(zipPath)) throw new Error(`Archive not found at:\n${zipPath}\n\nCheck that the Game root path in the DB panel matches the folder containing StadiumGBD.`)
+  if (!fs.existsSync(zipPath)) throw new Error(`Archive not found at:\n${zipPath}\n\nCheck that the selected game folder is the one containing StadiumGBD (use "Change Paths" to pick it again).`)
   const zip = new AdmZip(zipPath)
   const internalRoot = detectZipInternalRoot(zip)
   const entryName = internalRoot + dir + '/' + fileName
@@ -482,7 +594,7 @@ ipcMain.handle('stadiumAssets:removeFromZip', async (_event, zipPath, category, 
   const dir = STADIUM_ASSET_DIRS[category]
   const fileName = STADIUM_ASSET_FILES[category]?.[fileKey]
   if (!dir || !fileName) throw new Error(`Unknown category/key: ${category}/${fileKey}`)
-  if (!fs.existsSync(zipPath)) throw new Error(`Archive not found at:\n${zipPath}\n\nCheck that the Game root path in the DB panel matches the folder containing StadiumGBD.`)
+  if (!fs.existsSync(zipPath)) throw new Error(`Archive not found at:\n${zipPath}\n\nCheck that the selected game folder is the one containing StadiumGBD (use "Change Paths" to pick it again).`)
   const zip = new AdmZip(zipPath)
   const suffix = (dir + '/' + fileName).toLowerCase()
   const existing = zip.getEntries().find((e) => e.entryName.replace(/\\/g, '/').toLowerCase().endsWith(suffix))
@@ -585,6 +697,7 @@ ipcMain.handle('stadiumAssets:convertRarToZip', async (_event, rarPath) => {
 
 // ============================================================
 app.whenReady().then(() => {
+  restoreSavedGameRoot()
   createWindow()
 
   app.on('activate', () => {
