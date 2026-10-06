@@ -1513,6 +1513,19 @@ a {
   gap: 10px;
 }
 
+.modules-group-title {
+  margin: 14px 0 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text3);
+}
+
+.modules-group-title:first-child {
+  margin-top: 0;
+}
+
 .module-card {
   background: var(--bg2);
   border: 1px solid var(--border);
@@ -2058,7 +2071,7 @@ a {
    ============================================================ */
 .sa-row {
   display: grid;
-  grid-template-columns: 1fr 100px 130px 80px;
+  grid-template-columns: 1fr 100px 100px 130px 80px;
   gap: 8px;
   align-items: center;
   padding: 5px 12px;

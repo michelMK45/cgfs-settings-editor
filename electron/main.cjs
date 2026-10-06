@@ -513,10 +513,12 @@ ipcMain.handle('gameplay:removeFromRar', async (_event, rarPath, fileType) => {
 // ============================================================
 const STADIUM_ASSET_DIRS = {
   gameplay: 'GameplayCamGBD',
+  entrance: 'EntranceScene',
   goalpost: 'GoalpostGBD',
 }
 const STADIUM_ASSET_FILES = {
   gameplay: { '176': 'bcgameplay_176.dat', '261': 'bcgameplay_261.dat' },
+  entrance: { '176': 'bcstadiumcams_176.dat', '261': 'bcstadiumcams_261.dat' },
   goalpost: {
     goalnet:    'specificgoalnet_0_0.rx3',
     goalpost:   'specificgoalpost_0_0.rx3',
@@ -524,54 +526,49 @@ const STADIUM_ASSET_FILES = {
   },
 }
 
+const EMPTY_STADIUM_ASSET_SCAN = () => ({
+  gameplay: { has176: false, has261: false },
+  entrance: { has176: false, has261: false },
+  goalpost: { hasGoalnet: false, hasGoalpost: false, hasNetsupport: false },
+})
+
+// `has(category, key)` says whether the archive holds <dir>/<file> for that asset.
+function buildStadiumAssetScan(has) {
+  return {
+    gameplay: { has176: has('gameplay', '176'), has261: has('gameplay', '261') },
+    entrance: { has176: has('entrance', '176'), has261: has('entrance', '261') },
+    goalpost: { hasGoalnet: has('goalpost', 'goalnet'), hasGoalpost: has('goalpost', 'goalpost'), hasNetsupport: has('goalpost', 'netsupport') },
+  }
+}
+
+const stadiumAssetSuffix = (cat, key) => (STADIUM_ASSET_DIRS[cat] + '/' + STADIUM_ASSET_FILES[cat][key]).toLowerCase()
+
+function scanZipStadiumAssets(zipPath) {
+  const zip = new AdmZip(zipPath)
+  const names = zip.getEntries().map((e) => e.entryName.replace(/\\/g, '/').toLowerCase())
+  return buildStadiumAssetScan((cat, key) => names.some((n) => n.endsWith(stadiumAssetSuffix(cat, key))))
+}
+
 ipcMain.handle('stadiumAssets:scanZip', async (_event, zipPath) => {
   try {
-    const zip = new AdmZip(zipPath)
-    const names = zip.getEntries().map((e) => e.entryName.replace(/\\/g, '/').toLowerCase())
-    const sfx = (cat, key) => (STADIUM_ASSET_DIRS[cat] + '/' + STADIUM_ASSET_FILES[cat][key]).toLowerCase()
-    return {
-      gameplay: {
-        has176: names.some((n) => n.endsWith(sfx('gameplay', '176'))),
-        has261: names.some((n) => n.endsWith(sfx('gameplay', '261'))),
-      },
-      goalpost: {
-        hasGoalnet:    names.some((n) => n.endsWith(sfx('goalpost', 'goalnet'))),
-        hasGoalpost:   names.some((n) => n.endsWith(sfx('goalpost', 'goalpost'))),
-        hasNetsupport: names.some((n) => n.endsWith(sfx('goalpost', 'netsupport'))),
-      },
-    }
+    return scanZipStadiumAssets(zipPath)
   } catch (e) {
-    return {
-      gameplay: { has176: false, has261: false },
-      goalpost: { hasGoalnet: false, hasGoalpost: false, hasNetsupport: false },
-      error: e.message,
-    }
+    return { ...EMPTY_STADIUM_ASSET_SCAN(), error: e.message }
   }
 })
 
 ipcMain.handle('stadiumAssets:scanRar', async (_event, rarPath) => {
-  const empty = { gameplay: { has176: false, has261: false }, goalpost: { hasGoalnet: false, hasGoalpost: false, hasNetsupport: false } }
   if (detectArchiveType(rarPath) === 'zip') {
     try {
-      const zip = new AdmZip(rarPath)
-      const names = zip.getEntries().map((e) => e.entryName.replace(/\\/g, '/').toLowerCase())
-      const has = (cat, key) => names.some((n) => n.endsWith((STADIUM_ASSET_DIRS[cat] + '/' + STADIUM_ASSET_FILES[cat][key]).toLowerCase()))
-      return {
-        gameplay: { has176: has('gameplay', '176'), has261: has('gameplay', '261') },
-        goalpost: { hasGoalnet: has('goalpost', 'goalnet'), hasGoalpost: has('goalpost', 'goalpost'), hasNetsupport: has('goalpost', 'netsupport') },
-      }
-    } catch (e) { return { ...empty, error: e.message } }
+      return scanZipStadiumAssets(rarPath)
+    } catch (e) { return { ...EMPTY_STADIUM_ASSET_SCAN(), error: e.message } }
   }
-  if (findAllExtractors().length === 0) return { ...empty, noTool: true }
+  if (findAllExtractors().length === 0) return { ...EMPTY_STADIUM_ASSET_SCAN(), noTool: true }
   try {
     const stdout = await listArchiveWithFallbacks(rarPath)
     const normalized = stdout.toLowerCase().replace(/\\/g, '/')
-    const has = (cat, key) => normalized.includes((STADIUM_ASSET_DIRS[cat] + '/' + STADIUM_ASSET_FILES[cat][key]).toLowerCase())
-    return {
-      gameplay: { has176: has('gameplay', '176'), has261: has('gameplay', '261') },
-      goalpost: { hasGoalnet: has('goalpost', 'goalnet'), hasGoalpost: has('goalpost', 'goalpost'), hasNetsupport: has('goalpost', 'netsupport') },
-    }
-  } catch (e) { return { ...empty, error: e.message } }
+    return buildStadiumAssetScan((cat, key) => normalized.includes(stadiumAssetSuffix(cat, key)))
+  } catch (e) { return { ...EMPTY_STADIUM_ASSET_SCAN(), error: e.message } }
 })
 
 ipcMain.handle('stadiumAssets:writeToZip', async (_event, zipPath, category, fileKey, fileBufferArray) => {

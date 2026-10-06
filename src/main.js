@@ -15,6 +15,7 @@ const GBD_TYPES = {
     suffixEditable: true,
     suffixPlaceholder: ',police,pitch,net',
     suffixRegex: /^(\d+|\?\?\?)=(.+?)(,\d+,\d+,\d+)?\s*(?:;.*)?$/,
+    subSections: ['stadiumgoalpost', 'stadiumgoalposttexture', 'stadiumentrancecam'],
     suffixColumns: [
       { label: 'Police', placeholder: 'e.g. 4', type: 'spinner', min: 0, pickerKind: 'police' },
       { label: 'Pitch', placeholder: 'e.g. 0', type: 'spinner', min: 0, pickerKind: 'pitch' },
@@ -22,14 +23,13 @@ const GBD_TYPES = {
     ],
   },
   stadiumgoalpost: {
+    isSubSection: true,
     name: 'Goalposts',
-    rawOnly: false,
-    rawWithPanel: true,
+    tabLabel: 'Model',
     path: 'StadiumGBD',
     packPath: 'FSW/Goalpost/GoalpostModel',
     section: 'stadiumgoalpost',
     iniSection: 'stadiumgoalpost',
-    subSections: ['stadiumgoalposttexture'],
     defaultSuffix: '',
     suffixEditable: true,
     suffixPlaceholder: 'goalpost model',
@@ -55,6 +55,23 @@ const GBD_TYPES = {
     isScoreboardStdName: true,
     suffixColumns: [{ label: 'Goalpost Texture', placeholder: 'Texture pack folder', pickerKind: 'goalpostTexture' }],
   },
+  stadiumentrancecam: {
+    isSubSection: true,
+    name: 'Entrance Cameras',
+    tabLabel: 'Entrance Camera',
+    path: 'StadiumGBD',
+    packPath: 'FSW/Camera/EntranceScene',
+    section: 'stadiumentrancecam',
+    iniSection: 'stadiumentrancecam',
+    defaultSuffix: '',
+    suffixEditable: true,
+    suffixPlaceholder: 'entrance camera pack',
+    suffixRegex: /^(.+?)=(.*?)\s*(?:;.*)?$/,
+    hint: 'Entrance Camera - link a stadium to a shared pack in FSW/Camera/EntranceScene (bcstadiumcams_176/261.dat). Used only while the EntranceCam module is on; it takes priority over the EntranceScene folder inside the stadium itself.',
+    hasID: false,
+    isScoreboardStdName: true,
+    suffixColumns: [{ label: 'Entrance Camera Pack', placeholder: 'Camera pack folder', pickerKind: 'entranceCam' }],
+  },
   scoreboard: {
     name: 'Scoreboards',
     path: 'ScoreBoardGBD',
@@ -64,7 +81,7 @@ const GBD_TYPES = {
     suffixEditable: false,
     suffixPlaceholder: '',
     suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
-    subSections: ['hometeamscoreboard'],
+    subSections: ['hometeamscoreboard', 'derbyscoreboard'],
   },
   movies: {
     name: 'Movies',
@@ -86,7 +103,7 @@ const GBD_TYPES = {
     suffixEditable: false,
     suffixPlaceholder: '',
     suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
-    subSections: ['hometeamtvlogo'],
+    subSections: ['hometeamtvlogo', 'derbytvlogo'],
   },
   kitsid: {
     name: 'Kits',
@@ -106,6 +123,7 @@ const GBD_TYPES = {
     path: 'FSW/Chants',
     section: 'chantsid',
     iniSection: 'chantsid',
+    subSections: ['roundentrance', 'tournamententrance'],
     defaultSuffix: ',0.12,0.15,0.10,0.05,0.15,0.13,0.15,8.0,0.35,0.16,7.0',
     suffixEditable: true,
     suffixPlaceholder: ',vol,win,lose1,lose2,lose3,goal,silenceProb,maxSilence,awayCrowd,entranceVol,entranceDelay',
@@ -132,17 +150,19 @@ const GBD_TYPES = {
     path: 'StadiumGBD',
     section: 'stadiumnetname',
     iniSection: 'stadiumnetname',
-    defaultSuffix: ',1092494011,1068038976,0,0',
+    defaultSuffix: ',1089199011,1087199011,2,0,0',
     suffixEditable: true,
-    suffixPlaceholder: ',downDeep,highDeep,rig,shape',
+    trimTrailingEmpty: true,
+    suffixPlaceholder: ',downDeep,highDeep,rig,shape,tension',
     suffixRegex: /^(.+?)=,?([\d,]*)\s*(?:;.*)?$/,
-    hint: 'Stadium Net Names - double-click a folder on the left to insert it in raw mode.',
+    hint: 'Stadium Net Names - double-click a folder on the left to insert it in raw mode. Tension only has a visible effect when Down Deep is 1089438971 or 1093138971 and the game build provides the soccernet presets.',
     hasID: false,
     suffixColumns: [
-      { label: 'Down Deep', placeholder: 'e.g. 1092494011' },
+      { label: 'Down Deep', placeholder: 'e.g. 1089199011' },
       { label: 'High Deep', placeholder: 'e.g. 1068038976' },
       { label: 'Rig', placeholder: 'e.g. 0-5', type: 'spinner', min: 0, max: 5 },
       { label: 'Shape', placeholder: '0=Rectangle 1=Triangle', type: 'select', options: [{ label: 'Rectangle', value: '0' }, { label: 'Triangle', value: '1' }] },
+      { label: 'Tension', placeholder: '0, 1 or 2', type: 'select', options: [{ label: 'Not set', value: '' }, { label: '0', value: '0' }, { label: '1', value: '1' }, { label: '2', value: '2' }] },
     ],
   },
   stadiumnetid: {
@@ -151,16 +171,18 @@ const GBD_TYPES = {
     path: 'FSW',
     section: 'stadiumnetid',
     iniSection: 'stadiumnetid',
-    defaultSuffix: ',1086199011,1087199011,4,0',
+    defaultSuffix: ',1089199011,1087199011,2,0,0',
     suffixEditable: true,
-    suffixPlaceholder: ',downDeep,highDeep,rig,shape',
+    trimTrailingEmpty: true,
+    suffixPlaceholder: ',downDeep,highDeep,rig,shape,tension',
     suffixRegex: /^(\d+|\?\?\?)=(\d+)((?:,\d+)*)\s*(?:;.*)?$/,
-    hint: 'Stadium Net IDs - double-click a folder on the left to insert it in raw mode.',
+    hint: 'Stadium Net IDs - double-click a folder on the left to insert it in raw mode. Tension only has a visible effect when Down Deep is 1089438971 or 1093138971 and the game build provides the soccernet presets.',
     suffixColumns: [
-      { label: 'Down Deep', placeholder: 'e.g. 1086199011' },
+      { label: 'Down Deep', placeholder: 'e.g. 1089199011' },
       { label: 'High Deep', placeholder: 'e.g. 1087199011' },
       { label: 'Rig', placeholder: 'e.g. 4', type: 'spinner', min: 0, max: 5 },
       { label: 'Shape', placeholder: '0=Rectangle 1=Triangle', type: 'select', options: [{ label: 'Rectangle', value: '0' }, { label: 'Triangle', value: '1' }] },
+      { label: 'Tension', placeholder: '0, 1 or 2', type: 'select', options: [{ label: 'Not set', value: '' }, { label: '0', value: '0' }, { label: '1', value: '1' }, { label: '2', value: '2' }] },
     ],
   },
   scoreboardstdname: {
@@ -226,7 +248,66 @@ const GBD_TYPES = {
     suffixEditable: false,
     suffixRegex: /^(\d+|\?\?\?)=(.+?)\s*(?:;.*)?$/,
   },
+  derbyscoreboard: {
+    isSubSection: true,
+    name: 'Derby Scoreboards',
+    tabLabel: 'Derby Match',
+    path: 'ScoreBoardGBD',
+    section: 'derbyscoreboard',
+    iniSection: 'derbyscoreboard',
+    defaultSuffix: '',
+    suffixEditable: false,
+    suffixRegex: /^((?:\d+|\?\?\?)vs(?:\d+|\?\?\?))=(.+?)\s*(?:;.*)?$/,
+    isDerbyMatch: true,
+  },
+  derbytvlogo: {
+    isSubSection: true,
+    name: 'Derby TV Logos',
+    tabLabel: 'Derby Match',
+    path: 'TVLogoGBD',
+    section: 'derbytvlogo',
+    iniSection: 'derbytvlogo',
+    defaultSuffix: '',
+    suffixEditable: false,
+    suffixRegex: /^((?:\d+|\?\?\?)vs(?:\d+|\?\?\?))=(.+?)\s*(?:;.*)?$/,
+    isDerbyMatch: true,
+  },
+  roundentrance: {
+    isSubSection: true,
+    name: 'Round Entrance Anthems',
+    tabLabel: 'Round Entrance',
+    path: 'FSW/Chants',
+    section: 'roundentrance',
+    iniSection: 'roundentrance',
+    defaultSuffix: ',0.16,7.0',
+    suffixEditable: true,
+    suffixPlaceholder: ',vol,delay',
+    suffixRegex: /^(\d+|\?\?\?)=(.+?)((?:,[\d.]+)+)?\s*(?:;.*)?$/,
+    hint: 'Round Entrance - play the Entrance.mp3 of a chants folder before kick-off for a competition Round ID. Needs the TournamentEntrance module. Priority: round, then tournament, then home team.',
+    suffixColumns: [
+      { label: 'Vol. Entrance', placeholder: 'e.g. 0.16', type: 'slider', min: 0, max: 1, step: 0.01 },
+      { label: 'Entrance Delay (s)', placeholder: 'e.g. 7.0', type: 'slider', min: 0, max: 45, step: 0.5 },
+    ],
+  },
+  tournamententrance: {
+    isSubSection: true,
+    name: 'Tournament Entrance Anthems',
+    tabLabel: 'Tournament Entrance',
+    path: 'FSW/Chants',
+    section: 'tournamententrance',
+    iniSection: 'tournamententrance',
+    defaultSuffix: ',0.16,7.0',
+    suffixEditable: true,
+    suffixPlaceholder: ',vol,delay',
+    suffixRegex: /^(\d+|\?\?\?)=(.+?)((?:,[\d.]+)+)?\s*(?:;.*)?$/,
+    hint: 'Tournament Entrance - play the Entrance.mp3 of a chants folder before kick-off for a Tournament ID. Needs the TournamentEntrance module. Priority: round, then tournament, then home team.',
+    suffixColumns: [
+      { label: 'Vol. Entrance', placeholder: 'e.g. 0.16', type: 'slider', min: 0, max: 1, step: 0.01 },
+      { label: 'Entrance Delay (s)', placeholder: 'e.g. 7.0', type: 'slider', min: 0, max: 45, step: 0.5 },
+    ],
+  },
   ball: {
+    group: 'gameplay',
     name: 'Ball',
     path: 'FSW/balls',
     section: 'ball',
@@ -238,6 +319,7 @@ const GBD_TYPES = {
     hint: 'Balls - assign a ball folder to a competition Round ID (TOURROUNDID), not a team ID. Applied to data/sceneassets/ball at kickoff.',
   },
   referee: {
+    group: 'gameplay',
     name: 'Referee',
     path: 'FSW/referee',
     section: 'referee',
@@ -249,6 +331,7 @@ const GBD_TYPES = {
     hint: 'Referees - assign a referee kit folder to a competition Round ID (TOURROUNDID), not a team ID. Applied to data/sceneassets/kit at kickoff.',
   },
   wipe: {
+    group: 'gameplay',
     name: 'Wipe',
     path: 'FSW/wipe',
     section: 'wipe',
@@ -260,6 +343,7 @@ const GBD_TYPES = {
     hint: 'Wipes - assign a 3D scene-transition wipe folder to a competition Round ID (TOURROUNDID), not a team ID. Applied to data/sceneassets/wipe3d.',
   },
   adboard: {
+    group: 'gameplay',
     name: 'Adboard',
     path: 'FSW/adboards',
     section: 'adboard',
@@ -272,6 +356,12 @@ const GBD_TYPES = {
   },
 }
 
+// Types that share one top-level tab; each keeps its own folder list and ini section,
+// so a member is simply the active type while the group tab is open.
+const TYPE_GROUPS = {
+  gameplay: { name: 'Gameplay', members: ['ball', 'referee', 'wipe', 'adboard'] },
+}
+
 const state = {
   rootHandle: null,
   iniHandle: null,
@@ -281,6 +371,7 @@ const state = {
   sections: {},
   currentType: 'stadium',
   currentSection: 'stadium',
+  groupMember: {},
   rawSection: null,
   viewMode: 'visual',
   unsaved: false,
@@ -970,6 +1061,11 @@ const PARAM_PICKER_KINDS = {
     title: 'Goalpost Texture',
     mode: 'folders',
     dirs: ['FSW/Goalpost/GoalpostColor'],
+  },
+  entranceCam: {
+    title: 'Entrance Camera',
+    mode: 'folders',
+    dirs: ['FSW/Camera/EntranceScene'],
   },
 }
 
@@ -1963,7 +2059,7 @@ function buildIni() {
   }
   const order = state.sectionOrder.length
     ? state.sectionOrder
-    : ['scoreboard', 'hometeamscoreboard', 'derbymatch', 'scoreboardstdname', 'tvlogo', 'hometeamtvlogo', 'movies', 'teammovies', 'stadiumnetid', 'stadiumnetname', 'chantsid', 'kitsid', 'modules', 'stadium', 'stadiumgoalpost', 'stadiumgoalposttexture', 'ball', 'referee', 'wipe', 'adboard']
+    : ['scoreboard', 'hometeamscoreboard', 'derbyscoreboard', 'derbymatch', 'scoreboardstdname', 'tvlogo', 'hometeamtvlogo', 'derbytvlogo', 'movies', 'teammovies', 'stadiumnetid', 'stadiumnetname', 'chantsid', 'roundentrance', 'tournamententrance', 'kitsid', 'modules', 'stadium', 'stadiumgoalpost', 'stadiumgoalposttexture', 'stadiumentrancecam', 'ball', 'referee', 'wipe', 'adboard']
   const written = new Set()
   for (const sec of order) {
     if (state.sections[sec] !== undefined) {
@@ -1995,6 +2091,11 @@ function getSectionName(sec) {
     modules: 'modules',
     hometeamscoreboard: 'hometeamscoreboard',
     derbymatch: 'derbymatch',
+    derbyscoreboard: 'DerbyScoreBoard',
+    derbytvlogo: 'DerbyTvLogo',
+    roundentrance: 'roundentrance',
+    tournamententrance: 'tournamententrance',
+    stadiumentrancecam: 'stadiumentrancecam',
     hometeamtvlogo: 'hometeamtvlogo',
     ball: 'ball',
     referee: 'referee',
@@ -2139,7 +2240,7 @@ function renderGBDTypeTabs() {
   container.innerHTML = ''
 
   for (const [typeKey, typeConfig] of Object.entries(GBD_TYPES)) {
-    if (typeConfig.isSubSection) continue
+    if (typeConfig.isSubSection || typeConfig.group) continue
     const tab = document.createElement('button')
     tab.className = 'btn' + (typeKey === state.currentType ? ' active' : '')
     tab.style.display = 'flex'
@@ -2161,6 +2262,31 @@ function renderGBDTypeTabs() {
     })
 
     container.appendChild(tab)
+  }
+
+  for (const [groupKey, group] of Object.entries(TYPE_GROUPS)) {
+    const isActive = GBD_TYPES[state.currentType]?.group === groupKey
+    const groupTab = document.createElement('button')
+    groupTab.className = 'btn' + (isActive ? ' active' : '')
+    groupTab.style.display = 'flex'
+    groupTab.style.alignItems = 'center'
+    groupTab.style.gap = '4px'
+    if (isActive) {
+      groupTab.style.color = 'var(--accent)'
+      groupTab.style.borderColor = 'var(--accent)'
+    }
+    const total = group.members.reduce((sum, m) => sum + (state.gbdFolders[m]?.length || 0), 0)
+    groupTab.innerHTML = `${group.name} <span style="font-size:9px;color:var(--text3);">(${total})</span>`
+    groupTab.addEventListener('click', () => {
+      const member = state.groupMember[groupKey] || group.members[0]
+      state.currentType = member
+      state.currentSection = getDefaultSectionForType(member)
+      state.viewMode = 'visual'
+      renderAll()
+      updateEditorHint(member)
+      document.getElementById('panel-db')?.classList.remove('stadium-mode')
+    })
+    container.appendChild(groupTab)
   }
 
   const modTab = document.createElement('button')
@@ -2190,10 +2316,9 @@ function updateEditorHint(typeKey) {
     stadium: 'Add stadium folders here, set the Team ID for each entry, and use the list icon (or click a team in the DB panel) to assign more than one stadium to a team.',
     scoreboard: 'Add scoreboard folders. Map to scoreboard IDs. Use the By Home Team sub-tab for home team overrides.',
     scoreboardstdname: 'Scoreboard stadium names: use [scoreboardstdname].',
-    stadiumgoalpost: cfg?.hint,
     movies: 'Add movie folders for intro/outro sequences. Use sub-tabs for derby match and team-specific overrides.',
     tvlogo: 'Add TV logo folders. Use the By Home Team sub-tab for home team overrides.',
-    stadiumnetid: 'Editor for stadium net IDs. Format: stadiumID=downDeep,highDeep,rig,shape',
+    stadiumnetid: 'Editor for stadium net IDs. Format: stadiumID=downDeep,highDeep,rig,shape,tension',
     chantsid: cfg?.hint || 'Raw editor for chant/goal song IDs.',
     kitsid: cfg?.hint || 'Kits - link a team ID to a kit folder.',
     stadiumnetname: cfg?.hint || 'Raw editor for stadium net names.',
@@ -2509,6 +2634,38 @@ function renderItemListTree(typeKey, items, added) {
   renderNode(tree)
 }
 
+// Stadium tab: Entries, one tab per sub-section (goalposts, entrance camera) and
+// Assets. Shared by the entries editor and the Assets panel, which replaces it.
+function renderStadiumSectionTabs(tabsContainer, activeSection) {
+  tabsContainer.innerHTML = ''
+  const stadiumCfg = GBD_TYPES.stadium
+  const addTab = (label, count, sectionName, onClick) => {
+    const tab = document.createElement('div')
+    tab.className = 'section-tab' + (sectionName === activeSection ? ' active' : '')
+    tab.innerHTML = count == null ? label : `${label} <span class="tab-count">${count}</span>`
+    if (sectionName !== activeSection) tab.addEventListener('click', onClick)
+    tabsContainer.appendChild(tab)
+  }
+  const openSection = (sectionName) => () => {
+    state.currentSection = sectionName
+    renderAll()
+    const subHint = GBD_TYPES[sectionName]?.hint
+    document.getElementById('editor-hint').textContent = subHint || ''
+    if (!subHint) updateEditorHint('stadium')
+  }
+  const countOf = (sectionName) => parseSection(sectionName).filter((e) => e.type === 'entry').length
+
+  addTab('Entries', countOf(stadiumCfg.iniSection), stadiumCfg.iniSection, openSection(stadiumCfg.iniSection))
+  for (const subSec of stadiumCfg.subSections) {
+    addTab(`[${getSectionName(subSec)}]`, countOf(subSec), subSec, openSection(subSec))
+  }
+  addTab('Assets', null, 'stadiumassets', () => {
+    state.currentSection = 'stadiumassets'
+    renderAll()
+    if (Object.keys(state.stadiumAssetsStatus).length === 0) scanAllStadiumAssets()
+  })
+}
+
 function renderEditor() {
   if (state.currentType === 'modules') {
     renderModulesEditor()
@@ -2557,28 +2714,40 @@ function renderEditor() {
       state.currentSection = sectionName
       renderItemList(state.currentType)
       renderEditor()
+      const subHint = GBD_TYPES[sectionName]?.hint
+      if (subHint) document.getElementById('editor-hint').textContent = subHint
+      else updateEditorHint(state.currentType)
     })
     tabsContainer.appendChild(tab)
   }
 
   if (state.currentType === 'scoreboardstdname') {
     createSectionTab('scoreboardstdname')
+  } else if (state.currentType === 'stadium') {
+    renderStadiumSectionTabs(tabsContainer, state.currentSection)
   } else if (typeConfig?.subSections?.length) {
     createSectionTab(typeConfig.iniSection)
     for (const subSec of typeConfig.subSections) {
       createSectionTab(subSec)
     }
-  } else if (state.currentType === 'stadium') {
-    createSectionTab(iniSec, 'Entries')
-    const assetsTab = document.createElement('div')
-    assetsTab.className = 'section-tab'
-    assetsTab.textContent = 'Assets'
-    assetsTab.addEventListener('click', () => {
-      state.currentSection = 'stadiumassets'
-      renderAll()
-      if (Object.keys(state.stadiumAssetsStatus).length === 0) scanAllStadiumAssets()
-    })
-    tabsContainer.appendChild(assetsTab)
+  } else if (typeConfig?.group) {
+    const group = TYPE_GROUPS[typeConfig.group]
+    state.groupMember[typeConfig.group] = state.currentType
+    for (const member of group.members) {
+      const memberCfg = GBD_TYPES[member]
+      const tab = document.createElement('div')
+      tab.className = 'section-tab' + (member === state.currentType ? ' active' : '')
+      const count = parseSection(memberCfg.iniSection).filter((e) => e.type === 'entry').length
+      tab.innerHTML = `${memberCfg.name} <span class="tab-count">${count}</span>`
+      tab.addEventListener('click', () => {
+        if (member === state.currentType) return
+        state.currentType = member
+        state.currentSection = getDefaultSectionForType(member)
+        renderAll()
+        updateEditorHint(member)
+      })
+      tabsContainer.appendChild(tab)
+    }
   } else {
     createSectionTab(iniSec)
   }
@@ -2775,7 +2944,7 @@ function renderSectionVisual(secName) {
           }
           let sv = ''
           if (hasSuffixColumns) {
-            sv = ',' + suffixInputs.map((inp) => inp.value.trim()).join(',')
+            sv = joinSuffixValues(secConfig, suffixInputs)
           } else if (suffixInput) {
             sv = suffixInput.value.trim()
           } else {
@@ -2961,8 +3130,7 @@ function renderSectionVisual(secName) {
               const stadiumName = suffixInputs[0].value.trim()
               newSuffix = stadiumName
             } else {
-              const values = suffixInputs.map((inp) => inp.value.trim())
-              newSuffix = ',' + values.join(',')
+              newSuffix = joinSuffixValues(secConfig, suffixInputs)
             }
             const currentComment = commentInput ? commentInput.value.trim() : undefined
             if (hasID) {
@@ -3076,7 +3244,7 @@ function renderSectionVisual(secName) {
       commentInput.value = entry.comment || ''
       commentInput.placeholder = 'e.g. Estadio Mestalla'
       commentInput.addEventListener('change', () => {
-        const sv = ',' + suffixInputs.map((inp) => inp.value.trim()).join(',')
+        const sv = joinSuffixValues(secConfig, suffixInputs)
         updateEntryLine(secName, myVisualIdx, idInput ? idInput.value.trim() : '', sv, commentInput.value.trim())
       })
     }
@@ -3103,6 +3271,17 @@ function renderSectionVisual(secName) {
 
   applyEntrySearchFilter()
   updateCounts()
+}
+
+// Builds the ",a,b,c" suffix from a row's inputs. Older 4-value net entries have
+// no Tension, so trailing blanks are dropped for sections that opt in (leaving it
+// unset rather than writing a blank field that would shift the saved list).
+function joinSuffixValues(secConfig, inputs) {
+  const values = inputs.map((inp) => inp.value.trim())
+  if (secConfig.trimTrailingEmpty) {
+    while (values.length && values[values.length - 1] === '') values.pop()
+  }
+  return ',' + values.join(',')
 }
 
 function applyEntrySearchFilter() {
@@ -3162,7 +3341,8 @@ function updateEntryLine(secName, visualIdx, newId, newSuffix, newComment) {
           lines[i] = id + '=' + targetEntry.folder + suffix
         }
       } else {
-        lines[i] = targetEntry.folder + '=' + suffix
+        // CGFS splits the value on "," as-is, so no leading comma (see addItemsToSection).
+        lines[i] = targetEntry.folder + '=' + (suffix.startsWith(',') ? suffix.slice(1) : suffix)
       }
       setUnsaved(true)
       break
@@ -3227,7 +3407,7 @@ function addItemsToSection(typeKey, items) {
 
   toAdd.forEach((item) => {
     const itemToWrite = getComparableItemName(typeKey, item)
-    if (typeConfig.isScoreboardStdName) {
+    if (activeCfg.isScoreboardStdName || typeConfig.isScoreboardStdName) {
       if (activeCfg.packPath) {
         state.sections[iniSec].push(itemToWrite + '=' + (state.gbdPacks[iniSec]?.[0] || ''))
       } else {
@@ -3285,6 +3465,15 @@ function removeEntry(secName, visualIdx) {
   renderAll()
 }
 
+// Same grouping as CGFS's module catalog (server16_py/module_catalog.py).
+const MODULE_CATEGORIES = [
+  ['Stadium', ['Stadium', 'EntranceCam', 'Goalposts', 'StadiumNet']],
+  ['UI', ['TvLogo', 'ScoreBoard', 'StadiumName', 'Movies']],
+  ['Sound', ['Chants', 'AwayChants', 'AwayClubSong', 'TeamEntrance', 'TournamentEntrance']],
+  ['Game', ['Ball', 'Adboard', 'Referee', 'Wipe']],
+  ['Other', ['Autorun', 'DiscordRPC']],
+]
+
 function renderModulesEditor() {
   document.getElementById('raw-editor').classList.remove('visible')
   document.querySelector('.panel-left').style.display = 'none'
@@ -3331,19 +3520,17 @@ function renderModulesEditor() {
   const wrap = document.createElement('div')
   wrap.className = 'modules-wrap'
 
-  const grid = document.createElement('div')
-  grid.className = 'modules-grid'
-  wrap.appendChild(grid)
-
-  let count = 0
+  const moduleEntries = []
   lines.forEach((line) => {
     const trimmed = line.trim()
     if (!trimmed || trimmed.startsWith(';') || trimmed.startsWith('#') || !trimmed.includes('=')) return
     const eqIdx = trimmed.indexOf('=')
-    const key = trimmed.substring(0, eqIdx).trim()
-    const val = trimmed.substring(eqIdx + 1).trim()
+    moduleEntries.push({ key: trimmed.substring(0, eqIdx).trim(), val: trimmed.substring(eqIdx + 1).trim() })
+  })
+  const count = moduleEntries.length
+
+  const buildModuleCard = ({ key, val }) => {
     const isEnabled = val === '1'
-    count++
 
     const card = document.createElement('div')
     card.className = 'module-card' + (isEnabled ? ' enabled' : '')
@@ -3386,7 +3573,24 @@ function renderModulesEditor() {
 
     card.appendChild(info)
     card.appendChild(label)
-    grid.appendChild(card)
+    return card
+  }
+
+  // Grouped like CGFS's Dashboard Modules card; unknown modules land in "Other".
+  const knownModules = new Set(MODULE_CATEGORIES.flatMap(([, names]) => names))
+  MODULE_CATEGORIES.forEach(([title, names]) => {
+    const group = moduleEntries
+      .filter((m) => names.includes(m.key) || (title === 'Other' && !knownModules.has(m.key)))
+      .sort((a, b) => names.indexOf(a.key) - names.indexOf(b.key))
+    if (!group.length) return
+    const heading = document.createElement('div')
+    heading.className = 'modules-group-title'
+    heading.textContent = title
+    wrap.appendChild(heading)
+    const grid = document.createElement('div')
+    grid.className = 'modules-grid'
+    group.forEach((m) => grid.appendChild(buildModuleCard(m)))
+    wrap.appendChild(grid)
   })
 
   // --- Right: block ordering ---
@@ -3804,6 +4008,11 @@ if (document.readyState !== 'loading') {
 // STADIUM ASSETS PANEL
 // ============================================================
 const GOALPOST_DIR = 'GoalpostGBD'
+// Camera .dat pairs (one file per engine slot) that can ship inside a stadium folder.
+const CAM_ASSETS = {
+  gameplay: { dir: 'GameplayCamGBD', title: 'GameplayCam', file: (slot) => `bcgameplay_${slot}.dat` },
+  entrance: { dir: 'EntranceScene', title: 'EntranceCam', file: (slot) => `bcstadiumcams_${slot}.dat` },
+}
 const GOALPOST_FILES = {
   goalnet:    'specificgoalnet_0_0.rx3',
   goalpost:   'specificgoalpost_0_0.rx3',
@@ -3872,11 +4081,13 @@ function buildAssetStatusBadge(hasValue, scanning, error) {
 
 const EMPTY_ASSET_STATUS = () => ({
   gameplay: { has176: false, has261: false },
+  entrance: { has176: false, has261: false },
   goalpost: { hasGoalnet: false, hasGoalpost: false, hasNetsupport: false },
 })
 
 const NULL_ASSET_STATUS = (error) => ({
   gameplay: { has176: null, has261: null },
+  entrance: { has176: null, has261: null },
   goalpost: { hasGoalnet: null, hasGoalpost: null, hasNetsupport: null },
   ...(error ? { error } : {}),
 })
@@ -3905,12 +4116,17 @@ async function scanAllStadiumAssets() {
       try { stadDir = await stadiumGBDHandle.getDirectoryHandle(stadiumName) }
       catch (_) { state.stadiumAssetsStatus[stadiumName] = EMPTY_ASSET_STATUS(); continue }
 
-      let has176 = false, has261 = false
-      try {
-        const camDir = await stadDir.getDirectoryHandle('GameplayCamGBD')
-        try { await camDir.getFileHandle('bcgameplay_176.dat'); has176 = true } catch (_) {}
-        try { await camDir.getFileHandle('bcgameplay_261.dat'); has261 = true } catch (_) {}
-      } catch (_) {}
+      const scanCamPair = async (category) => {
+        const cam = CAM_ASSETS[category]
+        const found = { has176: false, has261: false }
+        try {
+          const camDir = await stadDir.getDirectoryHandle(cam.dir)
+          for (const slot of ['176', '261']) {
+            try { await camDir.getFileHandle(cam.file(slot)); found[`has${slot}`] = true } catch (_) {}
+          }
+        } catch (_) {}
+        return found
+      }
 
       let hasGoalnet = false, hasGoalpost = false, hasNetsupport = false
       try {
@@ -3921,7 +4137,8 @@ async function scanAllStadiumAssets() {
       } catch (_) {}
 
       state.stadiumAssetsStatus[stadiumName] = {
-        gameplay: { has176, has261 },
+        gameplay: await scanCamPair('gameplay'),
+        entrance: await scanCamPair('entrance'),
         goalpost: { hasGoalnet, hasGoalpost, hasNetsupport },
       }
     } catch (e) {
@@ -3952,6 +4169,7 @@ async function scanAllStadiumAssets() {
           } else {
             state.stadiumAssetsStatus[s] = {
               gameplay: { has176: result.gameplay.has176, has261: result.gameplay.has261 },
+              entrance: { has176: result.entrance.has176, has261: result.entrance.has261 },
               goalpost: { hasGoalnet: result.goalpost.hasGoalnet, hasGoalpost: result.goalpost.hasGoalpost, hasNetsupport: result.goalpost.hasNetsupport },
               ...(result.error ? { error: result.error } : {}),
             }
@@ -3966,13 +4184,19 @@ async function scanAllStadiumAssets() {
   renderStadiumAssetsPanel()
 }
 
-// category: 'gameplay' | 'goalpost'
+// Folder and file name inside a stadium for an asset.
+// category: 'gameplay' | 'entrance' | 'goalpost'
 // fileKey: '176'|'261' | 'goalnet'|'goalpost'|'netsupport'
+function stadiumAssetTarget(category, fileKey) {
+  const cam = CAM_ASSETS[category]
+  if (cam) return { dirName: cam.dir, fileName: cam.file(fileKey) }
+  return { dirName: GOALPOST_DIR, fileName: GOALPOST_FILES[fileKey] }
+}
+
 async function addStadiumAssetFile(stadiumName, category, fileKey, sourceBuffer) {
   const isZip = /\.zip$/i.test(stadiumName)
   const isRar = /\.rar$/i.test(stadiumName)
-  const dirName = category === 'gameplay' ? 'GameplayCamGBD' : GOALPOST_DIR
-  const fileName = category === 'gameplay' ? `bcgameplay_${fileKey}.dat` : GOALPOST_FILES[fileKey]
+  const { dirName, fileName } = stadiumAssetTarget(category, fileKey)
 
   if (!isZip && !isRar) {
     if (!state.rootHandle) { toast('Load the FIFA root folder first.', 'error'); return false }
@@ -4021,8 +4245,7 @@ async function addStadiumAssetFile(stadiumName, category, fileKey, sourceBuffer)
 async function removeStadiumAssetFile(stadiumName, category, fileKey) {
   const isZip = /\.zip$/i.test(stadiumName)
   const isRar = /\.rar$/i.test(stadiumName)
-  const dirName = category === 'gameplay' ? 'GameplayCamGBD' : GOALPOST_DIR
-  const fileName = category === 'gameplay' ? `bcgameplay_${fileKey}.dat` : GOALPOST_FILES[fileKey]
+  const { dirName, fileName } = stadiumAssetTarget(category, fileKey)
 
   if (!isZip && !isRar) {
     if (!state.rootHandle) return false
@@ -4138,52 +4361,47 @@ async function preConvertRarsInList(stadiumNames) {
   return renames
 }
 
-async function applyGameplayToAll() {
-  const source176 = state.stadiumAssetsSources['gameplay176']
-  const source261 = state.stadiumAssetsSources['gameplay261']
+// Copies the picked 176/261 source files into every stadium that lacks them.
+// category: 'gameplay' | 'entrance' (see CAM_ASSETS); sources live in
+// state.stadiumAssetsSources[`${category}176` / `${category}261`].
+async function applyCamToAll(category) {
+  const cam = CAM_ASSETS[category]
+  const source176 = state.stadiumAssetsSources[`${category}176`]
+  const source261 = state.stadiumAssetsSources[`${category}261`]
   if (!source176 || !source261) {
     toast('Set both source files (176 and 261) first using Browse….', 'error')
     return
   }
 
   const stadiums = state.gbdFolders.stadium || []
-  const missing176 = stadiums.filter((s) => !state.stadiumAssetsStatus[s]?.gameplay?.has176)
-  const missing261 = stadiums.filter((s) => !state.stadiumAssetsStatus[s]?.gameplay?.has261)
+  const missing176 = stadiums.filter((s) => !state.stadiumAssetsStatus[s]?.[category]?.has176)
+  const missing261 = stadiums.filter((s) => !state.stadiumAssetsStatus[s]?.[category]?.has261)
 
   if (missing176.length === 0 && missing261.length === 0) {
-    toast('All stadiums already have both gameplay files.', 'success')
+    toast(`All stadiums already have both ${cam.title} files.`, 'success')
     return
   }
 
   const lines = []
-  if (missing176.length > 0) lines.push(`bcgameplay_176.dat → ${missing176.length} stadiums`)
-  if (missing261.length > 0) lines.push(`bcgameplay_261.dat → ${missing261.length} stadiums`)
+  if (missing176.length > 0) lines.push(`${cam.file('176')} → ${missing176.length} stadiums`)
+  if (missing261.length > 0) lines.push(`${cam.file('261')} → ${missing261.length} stadiums`)
   if (!confirm(`Apply to all missing:\n${lines.join('\n')}`)) return
 
-  showLoadingOverlay('Applying GameplayCam…')
-  let ok176 = 0, ok261 = 0
+  showLoadingOverlay(`Applying ${cam.title}…`)
+  const ok = { '176': 0, '261': 0 }
   try {
     const renames = await preConvertRarsInList([...missing176, ...missing261])
     const eff = (n) => renames[n] || n
 
-    for (const origName of missing176) {
-      const stadiumName = eff(origName)
-      const buf = await source176.arrayBuffer()
-      const success = await addStadiumAssetFile(stadiumName, 'gameplay', '176', buf)
-      if (success) {
-        if (!state.stadiumAssetsStatus[stadiumName]) state.stadiumAssetsStatus[stadiumName] = EMPTY_ASSET_STATUS()
-        state.stadiumAssetsStatus[stadiumName].gameplay.has176 = true
-        ok176++
-      }
-    }
-    for (const origName of missing261) {
-      const stadiumName = eff(origName)
-      const buf = await source261.arrayBuffer()
-      const success = await addStadiumAssetFile(stadiumName, 'gameplay', '261', buf)
-      if (success) {
-        if (!state.stadiumAssetsStatus[stadiumName]) state.stadiumAssetsStatus[stadiumName] = EMPTY_ASSET_STATUS()
-        state.stadiumAssetsStatus[stadiumName].gameplay.has261 = true
-        ok261++
+    for (const [slot, source, missing] of [['176', source176, missing176], ['261', source261, missing261]]) {
+      for (const origName of missing) {
+        const stadiumName = eff(origName)
+        const success = await addStadiumAssetFile(stadiumName, category, slot, await source.arrayBuffer())
+        if (success) {
+          if (!state.stadiumAssetsStatus[stadiumName]) state.stadiumAssetsStatus[stadiumName] = EMPTY_ASSET_STATUS()
+          state.stadiumAssetsStatus[stadiumName][category][`has${slot}`] = true
+          ok[slot]++
+        }
       }
     }
   } finally {
@@ -4191,9 +4409,9 @@ async function applyGameplayToAll() {
   }
   renderStadiumAssetsPanel()
   const parts = []
-  if (missing176.length > 0) parts.push(`176: ${ok176}/${missing176.length}`)
-  if (missing261.length > 0) parts.push(`261: ${ok261}/${missing261.length}`)
-  toast(`Applied gameplay — ${parts.join(', ')}`, ok176 + ok261 === missing176.length + missing261.length ? 'success' : 'info')
+  if (missing176.length > 0) parts.push(`176: ${ok['176']}/${missing176.length}`)
+  if (missing261.length > 0) parts.push(`261: ${ok['261']}/${missing261.length}`)
+  toast(`Applied ${cam.title} — ${parts.join(', ')}`, ok['176'] + ok['261'] === missing176.length + missing261.length ? 'success' : 'info')
 }
 
 async function applyGoalpostToAll() {
@@ -4236,36 +4454,32 @@ async function applyGoalpostToAll() {
   toast(`Applied goalpost to ${ok}/${missing.length} stadiums`, ok === missing.length ? 'success' : 'info')
 }
 
-async function removeGameplayFromAll() {
+async function removeCamFromAll(category) {
+  const cam = CAM_ASSETS[category]
   const stadiums = state.gbdFolders.stadium || []
-  const present176 = stadiums.filter((s) => state.stadiumAssetsStatus[s]?.gameplay?.has176)
-  const present261 = stadiums.filter((s) => state.stadiumAssetsStatus[s]?.gameplay?.has261)
+  const present176 = stadiums.filter((s) => state.stadiumAssetsStatus[s]?.[category]?.has176)
+  const present261 = stadiums.filter((s) => state.stadiumAssetsStatus[s]?.[category]?.has261)
 
   if (present176.length === 0 && present261.length === 0) {
-    toast('No stadiums have gameplay files.', 'info')
+    toast(`No stadiums have ${cam.title} files.`, 'info')
     return
   }
 
   const lines = []
-  if (present176.length > 0) lines.push(`bcgameplay_176.dat from ${present176.length} stadiums`)
-  if (present261.length > 0) lines.push(`bcgameplay_261.dat from ${present261.length} stadiums`)
+  if (present176.length > 0) lines.push(`${cam.file('176')} from ${present176.length} stadiums`)
+  if (present261.length > 0) lines.push(`${cam.file('261')} from ${present261.length} stadiums`)
   if (!confirm(`Remove from all:\n${lines.join('\n')}`)) return
 
-  showLoadingOverlay('Removing GameplayCam…')
-  let ok176 = 0, ok261 = 0
+  showLoadingOverlay(`Removing ${cam.title}…`)
+  const ok = { '176': 0, '261': 0 }
   try {
-    for (const stadiumName of present176) {
-      const success = await removeStadiumAssetFile(stadiumName, 'gameplay', '176')
-      if (success) {
-        state.stadiumAssetsStatus[stadiumName].gameplay.has176 = false
-        ok176++
-      }
-    }
-    for (const stadiumName of present261) {
-      const success = await removeStadiumAssetFile(stadiumName, 'gameplay', '261')
-      if (success) {
-        state.stadiumAssetsStatus[stadiumName].gameplay.has261 = false
-        ok261++
+    for (const [slot, present] of [['176', present176], ['261', present261]]) {
+      for (const stadiumName of present) {
+        const success = await removeStadiumAssetFile(stadiumName, category, slot)
+        if (success) {
+          state.stadiumAssetsStatus[stadiumName][category][`has${slot}`] = false
+          ok[slot]++
+        }
       }
     }
   } finally {
@@ -4273,9 +4487,9 @@ async function removeGameplayFromAll() {
   }
   renderStadiumAssetsPanel()
   const parts = []
-  if (present176.length > 0) parts.push(`176: ${ok176}/${present176.length}`)
-  if (present261.length > 0) parts.push(`261: ${ok261}/${present261.length}`)
-  toast(`Removed gameplay — ${parts.join(', ')}`, ok176 + ok261 === present176.length + present261.length ? 'success' : 'info')
+  if (present176.length > 0) parts.push(`176: ${ok['176']}/${present176.length}`)
+  if (present261.length > 0) parts.push(`261: ${ok['261']}/${present261.length}`)
+  toast(`Removed ${cam.title} — ${parts.join(', ')}`, ok['176'] + ok['261'] === present176.length + present261.length ? 'success' : 'info')
 }
 
 async function removeGoalpostFromAll() {
@@ -4318,6 +4532,7 @@ function buildModalBody(stadiumName) {
   const scanning = !!status.scanning
   const error = status.error || null
   const gp = status.gameplay || {}
+  const entrance = status.entrance || {}
   const goalpost = status.goalpost || {}
 
   const body = document.createElement('div')
@@ -4339,8 +4554,8 @@ function buildModalBody(stadiumName) {
     assignBtn.className = 'btn sa-file-assign-btn'
     assignBtn.textContent = 'Assign'
     assignBtn.addEventListener('click', async () => {
-      const src = category === 'gameplay'
-        ? state.stadiumAssetsSources[`gameplay${fileKey}`]
+      const src = CAM_ASSETS[category]
+        ? state.stadiumAssetsSources[`${category}${fileKey}`]
         : state.stadiumAssetsSources[fileKey]
       let buf
       if (src) {
@@ -4354,8 +4569,8 @@ function buildModalBody(stadiumName) {
       const ok = await addStadiumAssetFile(stadiumName, category, fileKey, buf)
       if (ok) {
         if (!state.stadiumAssetsStatus[stadiumName]) state.stadiumAssetsStatus[stadiumName] = EMPTY_ASSET_STATUS()
-        if (category === 'gameplay') {
-          state.stadiumAssetsStatus[stadiumName].gameplay[`has${fileKey}`] = true
+        if (CAM_ASSETS[category]) {
+          state.stadiumAssetsStatus[stadiumName][category][`has${fileKey}`] = true
         } else {
           const capKey = fileKey.charAt(0).toUpperCase() + fileKey.slice(1)
           state.stadiumAssetsStatus[stadiumName].goalpost[`has${capKey}`] = true
@@ -4375,8 +4590,8 @@ function buildModalBody(stadiumName) {
       if (!confirm(`Remove "${expectedName}" from "${normalizeStadiumItemName(stadiumName)}"?`)) return
       const ok = await removeStadiumAssetFile(stadiumName, category, fileKey)
       if (ok) {
-        if (category === 'gameplay') {
-          state.stadiumAssetsStatus[stadiumName].gameplay[`has${fileKey}`] = false
+        if (CAM_ASSETS[category]) {
+          state.stadiumAssetsStatus[stadiumName][category][`has${fileKey}`] = false
         } else {
           const capKey = fileKey.charAt(0).toUpperCase() + fileKey.slice(1)
           state.stadiumAssetsStatus[stadiumName].goalpost[`has${capKey}`] = false
@@ -4397,9 +4612,19 @@ function buildModalBody(stadiumName) {
   gpTitle.className = 'stadium-assets-section-title'
   gpTitle.textContent = 'GameplayCam'
   gpSection.appendChild(gpTitle)
-  gpSection.appendChild(makeFileRow('bcgameplay_176.dat', gp.has176, 'gameplay', '176', ['.dat'], 'bcgameplay_176.dat'))
-  gpSection.appendChild(makeFileRow('bcgameplay_261.dat', gp.has261, 'gameplay', '261', ['.dat'], 'bcgameplay_261.dat'))
+  gpSection.appendChild(makeFileRow(CAM_ASSETS.gameplay.file('176'), gp.has176, 'gameplay', '176', ['.dat'], CAM_ASSETS.gameplay.file('176')))
+  gpSection.appendChild(makeFileRow(CAM_ASSETS.gameplay.file('261'), gp.has261, 'gameplay', '261', ['.dat'], CAM_ASSETS.gameplay.file('261')))
   body.appendChild(gpSection)
+
+  // EntranceScene section (the stadium's own entrance camera)
+  const entranceSection = document.createElement('div')
+  const entranceTitle = document.createElement('div')
+  entranceTitle.className = 'stadium-assets-section-title'
+  entranceTitle.textContent = 'EntranceCam'
+  entranceSection.appendChild(entranceTitle)
+  entranceSection.appendChild(makeFileRow(CAM_ASSETS.entrance.file('176'), entrance.has176, 'entrance', '176', ['.dat'], CAM_ASSETS.entrance.file('176')))
+  entranceSection.appendChild(makeFileRow(CAM_ASSETS.entrance.file('261'), entrance.has261, 'entrance', '261', ['.dat'], CAM_ASSETS.entrance.file('261')))
+  body.appendChild(entranceSection)
 
   // GoalpostGBD section
   const goalpostSection = document.createElement('div')
@@ -4484,6 +4709,9 @@ function closeStadiumAssetsModal() {
   state.stadiumAssetsModal = null
 }
 
+// Toolbar pages of the Assets panel, in dot order.
+const STADIUM_ASSET_PAGES = ['gameplay', 'entrance', 'goalpost']
+
 function renderStadiumAssetsPanel() {
   document.getElementById('btn-add-selected').style.display = 'none'
   document.getElementById('toolbar-sep-adding-selected').style.display = 'none'
@@ -4499,25 +4727,8 @@ function renderStadiumAssetsPanel() {
   const layout = document.querySelector('.main-layout')
   if (layout) layout.classList.remove('left-hidden')
 
-  // Render section tabs: Entries (click → back to stadium entries) + Assets (active)
-  const tabsContainer = document.getElementById('section-tabs')
-  tabsContainer.innerHTML = ''
-  const entriesTab = document.createElement('div')
-  entriesTab.className = 'section-tab'
-  const entryCount = (state.sections.stadium || []).filter((l) => {
-    const t = l.trim()
-    return t && !t.startsWith(';') && /^(\d+|\?\?\?)=/.test(t)
-  }).length
-  entriesTab.innerHTML = `Entries <span class="tab-count">${entryCount}</span>`
-  entriesTab.addEventListener('click', () => {
-    state.currentSection = 'stadium'
-    renderAll()
-  })
-  tabsContainer.appendChild(entriesTab)
-  const assetsTabActive = document.createElement('div')
-  assetsTabActive.className = 'section-tab active'
-  assetsTabActive.textContent = 'Assets'
-  tabsContainer.appendChild(assetsTabActive)
+  // Same tabs as the entries editor, with Assets active
+  renderStadiumSectionTabs(document.getElementById('section-tabs'), 'stadiumassets')
 
   document.getElementById('raw-editor').classList.remove('visible')
 
@@ -4537,7 +4748,8 @@ function renderStadiumAssetsPanel() {
   header.innerHTML = `
     <div class="gameplay-cam-title">Stadiums Assets</div>
     <div class="gameplay-cam-desc">
-      Manages <code>GameplayCamGBD/</code> (<code>bcgameplay_176.dat</code>, <code>bcgameplay_261.dat</code>)
+      Manages <code>GameplayCamGBD/</code> (<code>bcgameplay_176.dat</code>, <code>bcgameplay_261.dat</code>),
+      <code>EntranceScene/</code> (<code>bcstadiumcams_176.dat</code>, <code>bcstadiumcams_261.dat</code>)
       and <code>GoalpostGBD/</code> (goalpost rx3 files) inside each stadium folder.
       Click a stadium to assign or remove files. ZIP archives fully supported; RAR converted to ZIP when modified.
     </div>
@@ -4585,11 +4797,13 @@ function renderStadiumAssetsPanel() {
   const pageContent = document.createElement('div')
   pageContent.className = 'sa-toolbar-page-content'
 
-  if (state.stadiumAssetsToolbarPage === 0) {
-    // Page 0: GameplayCam
+  const camPageCategory = STADIUM_ASSET_PAGES[state.stadiumAssetsToolbarPage]
+  if (camPageCategory !== 'goalpost') {
+    const category = camPageCategory
+    const cam = CAM_ASSETS[category]
     const pageLabel = document.createElement('span')
     pageLabel.className = 'sa-toolbar-page-label'
-    pageLabel.textContent = 'GameplayCam'
+    pageLabel.textContent = cam.title
     pageContent.appendChild(pageLabel)
 
     for (const type of ['176', '261']) {
@@ -4603,7 +4817,7 @@ function renderStadiumAssetsPanel() {
 
       const nm = document.createElement('span')
       nm.className = 'gameplay-cam-source-name'
-      const srcFile = state.stadiumAssetsSources[`gameplay${type}`]
+      const srcFile = state.stadiumAssetsSources[`${category}${type}`]
       nm.textContent = srcFile ? srcFile.name : 'none set'
       nm.title = srcFile ? srcFile.name : ''
       grp.appendChild(nm)
@@ -4611,27 +4825,27 @@ function renderStadiumAssetsPanel() {
       const browseBtn = document.createElement('button')
       browseBtn.className = 'btn'
       browseBtn.textContent = 'Browse…'
-      browseBtn.addEventListener('click', () => pickAndSetSource(`gameplay${type}`, `bcgameplay_${type}.dat`, ['.dat']))
+      browseBtn.addEventListener('click', () => pickAndSetSource(`${category}${type}`, cam.file(type), ['.dat']))
       grp.appendChild(browseBtn)
 
       pageContent.appendChild(grp)
     }
 
-    const applyGameplayBtn = document.createElement('button')
-    applyGameplayBtn.className = 'btn'
-    applyGameplayBtn.textContent = 'Apply to all missing'
-    applyGameplayBtn.disabled = !canEdit
-    applyGameplayBtn.addEventListener('click', () => applyGameplayToAll())
-    pageContent.appendChild(applyGameplayBtn)
+    const applyCamBtn = document.createElement('button')
+    applyCamBtn.className = 'btn'
+    applyCamBtn.textContent = 'Apply to all missing'
+    applyCamBtn.disabled = !canEdit
+    applyCamBtn.addEventListener('click', () => applyCamToAll(category))
+    pageContent.appendChild(applyCamBtn)
 
-    const removeGameplayBtn = document.createElement('button')
-    removeGameplayBtn.className = 'btn danger'
-    removeGameplayBtn.textContent = 'Remove from all'
-    removeGameplayBtn.disabled = !canEdit
-    removeGameplayBtn.addEventListener('click', () => removeGameplayFromAll())
-    pageContent.appendChild(removeGameplayBtn)
+    const removeCamBtn = document.createElement('button')
+    removeCamBtn.className = 'btn danger'
+    removeCamBtn.textContent = 'Remove from all'
+    removeCamBtn.disabled = !canEdit
+    removeCamBtn.addEventListener('click', () => removeCamFromAll(category))
+    pageContent.appendChild(removeCamBtn)
   } else {
-    // Page 1: GoalpostGBD
+    // GoalpostGBD page
     const pageLabel = document.createElement('span')
     pageLabel.className = 'sa-toolbar-page-label'
     pageLabel.textContent = 'GoalpostGBD'
@@ -4688,8 +4902,8 @@ function renderStadiumAssetsPanel() {
   // Dot navigation — pushed to right
   const dots = document.createElement('div')
   dots.className = 'sa-toolbar-dots'
-  const dotLabels = ['GameplayCam', 'GoalpostGBD']
-  for (let i = 0; i < 2; i++) {
+  const dotLabels = STADIUM_ASSET_PAGES.map((c) => (CAM_ASSETS[c] ? CAM_ASSETS[c].title : 'GoalpostGBD'))
+  for (let i = 0; i < STADIUM_ASSET_PAGES.length; i++) {
     const dot = document.createElement('button')
     dot.className = 'sa-toolbar-dot' + (state.stadiumAssetsToolbarPage === i ? ' active' : '')
     dot.title = dotLabels[i]
@@ -4736,7 +4950,7 @@ function renderStadiumAssetsPanel() {
 
     const thead = document.createElement('div')
     thead.className = 'sa-row sa-thead'
-    for (const label of ['Stadium', 'GameplayCam', 'GoalpostGBD', '']) {
+    for (const label of ['Stadium', 'GameplayCam', 'EntranceCam', 'GoalpostGBD', '']) {
       const cell = document.createElement('span')
       cell.textContent = label
       thead.appendChild(cell)
@@ -4756,6 +4970,7 @@ function renderStadiumAssetsPanel() {
       const scanning = !!status?.scanning
       const error = status?.error || null
       const gp = status?.gameplay || {}
+      const entrance = status?.entrance || {}
       const goalpost = status?.goalpost || {}
 
       const normalizedName = normalizeStadiumItemName(stadiumName)
@@ -4792,6 +5007,13 @@ function renderStadiumAssetsPanel() {
       gpCell.appendChild(buildAssetStatusBadge(scanning ? null : gp.has176, scanning, error))
       gpCell.appendChild(buildAssetStatusBadge(scanning ? null : gp.has261, scanning, error))
       row.appendChild(gpCell)
+
+      // EntranceScene summary (176 + 261)
+      const entranceCell = document.createElement('span')
+      entranceCell.className = 'sa-summary-cell'
+      entranceCell.appendChild(buildAssetStatusBadge(scanning ? null : entrance.has176, scanning, error))
+      entranceCell.appendChild(buildAssetStatusBadge(scanning ? null : entrance.has261, scanning, error))
+      row.appendChild(entranceCell)
 
       // GoalpostGBD summary (3 badges)
       const goalpostCell = document.createElement('span')
