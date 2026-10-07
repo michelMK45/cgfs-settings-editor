@@ -918,6 +918,11 @@ function usesPackedStadiumItems(typeKey) {
   )
 }
 
+// Types whose items may be assigned more than once (e.g. one stadium for several teams).
+function isReusableItemType(typeKey) {
+  return typeKey === 'stadium'
+}
+
 function getComparableItemName(typeKey, itemName) {
   if (usesPackedStadiumItems(typeKey) && typeKey !== 'scoreboard' && typeKey !== 'hometeamscoreboard') {
     return normalizeStadiumItemName(itemName)
@@ -2615,17 +2620,21 @@ function renderItemList(typeKey) {
     return
   }
 
+  // Several teams can share a stadium, so an added one keeps its check but stays pickable.
+  const reusable = isReusableItemType(typeKey)
+
   filtered.forEach((item) => {
-    const isAdded = added.has(item)
+    const wasAdded = added.has(item)
+    const isAdded = wasAdded && !reusable
     const isSelected = state.selectedItems[typeKey].has(item)
 
     const itemEl = document.createElement('div')
-    itemEl.className = 'item' + (isAdded ? ' added' : '') + (isSelected ? ' selected' : '')
+    itemEl.className = 'item' + (wasAdded ? ' added' : '') + (reusable ? ' reusable' : '') + (isSelected ? ' selected' : '')
     itemEl.dataset.item = item
 
     itemEl.innerHTML = `
       <span class="item-name" title="${item}">${item}</span>
-      ${isAdded ? '<div class="check-icon">✓</div>' : ''}
+      ${wasAdded ? '<div class="check-icon">✓</div>' : ''}
     `
 
     itemEl.addEventListener('click', (e) => {
@@ -3614,6 +3623,7 @@ function addItemsToSection(typeKey, items) {
       : typeConfig.iniSection
   const added = getAddedItems(typeKey, iniSec)
   const toAdd = items.filter((item) => {
+    if (isReusableItemType(typeKey)) return true
     const comparable = getComparableItemName(typeKey, item)
     return !added.has(item) && !added.has(comparable)
   })

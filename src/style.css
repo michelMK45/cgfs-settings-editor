@@ -620,6 +620,14 @@ header {
   opacity: 0.5;
 }
 
+.item.added.reusable {
+  opacity: 1;
+}
+
+.item.added.reusable .item-name {
+  color: var(--text);
+}
+
 .item.selected {
   background: var(--bg4);
   border-left-color: var(--accent);
