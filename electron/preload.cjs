@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     clearGameRoot: () => ipcRenderer.invoke('db:clearGameRoot'),
     getState: () => ipcRenderer.invoke('db:getState'),
     getTeams: (gameRootPath) => ipcRenderer.invoke('db:getTeams', gameRootPath),
+    getCompetitions: (gameRootPath) => ipcRenderer.invoke('db:getCompetitions', gameRootPath),
+    getCompetitionNames: (gameRootPath) => ipcRenderer.invoke('db:getCompetitionNames', gameRootPath),
+    pickCompobj: (gameRootPath) => ipcRenderer.invoke('db:pickCompobj', gameRootPath),
   },
   // File access scoped to the saved game root (paths are relative to it).
   fs: {

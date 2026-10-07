@@ -5,6 +5,7 @@ const os = require('node:os')
 const { execFile } = require('node:child_process')
 const AdmZip = require('adm-zip')
 const { readTeamsFromGameRoot } = require('./db-reader.cjs')
+const { readCompetitions, readCompetitionNames } = require('./compobj-reader.cjs')
 
 const devUrl = process.env.ELECTRON_START_URL
 const dbState = {
@@ -177,6 +178,57 @@ ipcMain.handle('db:getTeams', async (_event, maybeGameRootPath) => {
     teams,
     gameRootPath,
   }
+})
+
+// ============================================================
+// COMPETITIONS (compobj.txt)
+// A compobj.txt picked by hand is remembered per game root, so it survives
+// restarts and never leaks into another installation.
+// ============================================================
+function getManualCompobjPath(gameRootPath) {
+  const saved = readConfig().compobjByRoot?.[gameRootPath]
+  return typeof saved === 'string' ? saved : ''
+}
+
+function resolveCompetitionsRoot(maybeGameRootPath) {
+  const gameRootPath = isValidRoot(maybeGameRootPath) ? maybeGameRootPath.trim() : dbState.gameRootPath
+  if (!isValidRoot(gameRootPath)) {
+    throw new Error('Game root path not set. Please select your FIFA 16 root folder first.')
+  }
+  return gameRootPath
+}
+
+ipcMain.handle('db:getCompetitions', async (_event, maybeGameRootPath) => {
+  const gameRootPath = resolveCompetitionsRoot(maybeGameRootPath)
+  return readCompetitions(gameRootPath, getManualCompobjPath(gameRootPath))
+})
+
+ipcMain.handle('db:getCompetitionNames', async (_event, maybeGameRootPath) => {
+  const gameRootPath = resolveCompetitionsRoot(maybeGameRootPath)
+  const data = readCompetitions(gameRootPath, getManualCompobjPath(gameRootPath))
+  if (!data.ok) return { language: '', trophies: {}, countries: {} }
+
+  const trophyAssetIds = [...new Set(data.trophies.map((t) => t.gfx).filter((id) => id !== null))]
+  const countryIds = [...new Set(data.nations.map((n) => /(\d+)$/.exec(n.nameKey)?.[1]).filter(Boolean).map(Number))]
+  return readCompetitionNames(gameRootPath, trophyAssetIds, countryIds)
+})
+
+ipcMain.handle('db:pickCompobj', async (_event, maybeGameRootPath) => {
+  const gameRootPath = resolveCompetitionsRoot(maybeGameRootPath)
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    title: 'Select compobj.txt',
+    defaultPath: gameRootPath,
+    filters: [{ name: 'compobj.txt', extensions: ['txt'] }, { name: 'All files', extensions: ['*'] }],
+  })
+  if (result.canceled || !result.filePaths?.length) return { canceled: true }
+
+  const filePath = result.filePaths[0]
+  const data = readCompetitions(gameRootPath, filePath)
+  if (!data.ok) return { canceled: false, ...data }
+
+  writeConfig({ compobjByRoot: { ...readConfig().compobjByRoot, [gameRootPath]: filePath } })
+  return { canceled: false, ...data }
 })
 
 // ============================================================

@@ -26,7 +26,7 @@
     <header>
       <div class="logo">
         <span>CGFS</span>
-        <span class="logo-badge">SETTINGS EDITOR 2.2.1</span>
+        <span class="logo-badge">SETTINGS EDITOR 2.3.0</span>
       </div>
       <div class="header-status" id="header-status">
         <div class="status-dot" id="status-dot"></div>
@@ -128,6 +128,8 @@
         <button class="btn" id="btn-full-raw"><i class="fa-solid fa-code"></i>Full INI</button>
         <div class="toolbar-sep"></div>
         <button class="btn danger" id="btn-reset-paths"><i class="fa-solid fa-folder-tree"></i>Change Paths</button>
+        <button class="btn" id="btn-reload" title="Rescan the game folders and re-read settings.ini from disk"><i
+            class="fa-solid fa-rotate-right"></i>Reload</button>
         <button class="btn" id="btn-check-updates"><i class="fa-solid fa-arrows-rotate"></i>Check for Updates</button>
       </div>
 
@@ -206,34 +208,64 @@
             <button class="btn db-toggle-icon" id="db-toggle" title="Collapse panel"
               aria-label="Collapse panel">◀</button>
             <div class="panel-db-title-wrap">
-              <div class="panel-db-title"><i class="fa-solid fa-database"></i> DB Teams</div>
-              <span class="count-badge" id="db-teams-count">0</span>
+              <div class="panel-db-title"><i class="fa-solid fa-database"></i> Database</div>
             </div>
             <div class="panel-db-actions">
-              <button class="btn" id="db-refresh" title="Reload teams list"><i class="fa-solid fa-rotate"
+              <button class="btn" id="db-refresh" title="Reload the current tab"><i class="fa-solid fa-rotate"
                   aria-hidden="true"></i>Refresh</button>
             </div>
           </div>
 
-          <div class="panel-db-status" id="db-status">Desktop DB reader ready.</div>
-          <div class="panel-db-search-wrap">
-            <input type="text" class="search-box" id="db-search" placeholder="Search team id or name...">
+          <div class="panel-db-tabs" id="panel-db-tabs" role="tablist">
+            <button class="panel-db-tab active" id="db-tab-teams" data-db-tab="teams" role="tab"
+              aria-selected="true">Teams <span class="count-badge" id="db-teams-count">0</span></button>
+            <button class="panel-db-tab" id="db-tab-competitions" data-db-tab="competitions" role="tab"
+              aria-selected="false">Competitions <span class="count-badge" id="comp-count">0</span></button>
           </div>
 
-          <div class="panel-db-table-wrap" id="db-table-wrap">
-            <table class="db-table" id="db-teams-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Name</th>
-                </tr>
-              </thead>
-              <tbody id="db-teams-body">
-                <tr>
-                  <td colspan="2" class="db-empty">No teams loaded.</td>
-                </tr>
-              </tbody>
-            </table>
+          <!-- TEAMS TAB -->
+          <div class="panel-db-pane" id="db-pane-teams" role="tabpanel">
+            <div class="panel-db-status" id="db-status">Desktop DB reader ready.</div>
+            <div class="panel-db-search-wrap">
+              <input type="text" class="search-box" id="db-search" placeholder="Search team id or name...">
+            </div>
+
+            <div class="panel-db-table-wrap" id="db-table-wrap">
+              <table class="db-table" id="db-teams-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                  </tr>
+                </thead>
+                <tbody id="db-teams-body">
+                  <tr>
+                    <td colspan="2" class="db-empty">No teams loaded.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- COMPETITIONS TAB -->
+          <div class="panel-db-pane" id="db-pane-competitions" role="tabpanel" hidden>
+            <div class="panel-db-status" id="comp-status">Competitions are read from compobj.txt.</div>
+            <div class="panel-db-search-wrap comp-filters">
+              <input type="text" class="search-box" id="comp-search" placeholder="Search name, code or ID...">
+              <div class="comp-filter-row">
+                <select class="comp-select" id="comp-conf" aria-label="Confederation"></select>
+                <select class="comp-select" id="comp-nation" aria-label="Country"></select>
+              </div>
+              <button class="btn comp-pick-btn" id="comp-pick" title="Pick a compobj.txt by hand">
+                <i class="fa-regular fa-file-lines" aria-hidden="true"></i>Choose compobj.txt...</button>
+            </div>
+
+            <div class="comp-list-wrap" id="comp-list-wrap">
+              <div class="comp-list" id="comp-list">
+                <div class="db-empty">No competitions loaded.</div>
+              </div>
+            </div>
+            <div class="comp-hint">Click an ID to copy it. Drag it, or double-click, onto an ID field.</div>
           </div>
         </aside>
 
@@ -248,7 +280,7 @@
           <span>-</span>
           <span id="footer-stadiums-loaded">0 folders</span>
         </div>
-        <div style="font-size: 11px; color: var(--text3);">CGFS Settings Editor V2.2.1 - <a
+        <div style="font-size: 11px; color: var(--text3);">CGFS Settings Editor V2.3.0 - <a
             href="https://soccergaming.com/forums/members/michelmk.288276/" target="_blank">MichelMK</a></div>
       </footer>
     </div>

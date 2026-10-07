@@ -1,6 +1,8 @@
 import './style.css'
 import { openParamPicker } from './paramPicker.js'
+import { initCompetitions, loadCompetitions, resetCompetitions, getActiveDbTab } from './competitions.js'
 import { createDesktopRootHandle } from './desktopFs.js'
+import { renderMarkdown } from './markdown.js'
 
 // ============================================================
 // STATE
@@ -117,7 +119,7 @@ const GBD_TYPES = {
     hint: 'Kits - link a team ID to a kit folder. Drag a team ID from the DB panel onto the ID field.',
   },
   chantsid: {
-    name: 'Chants IDs',
+    name: 'Chants',
     rawOnly: false,
     rawWithPanel: true,
     path: 'FSW/Chants',
@@ -128,7 +130,7 @@ const GBD_TYPES = {
     suffixEditable: true,
     suffixPlaceholder: ',vol,win,lose1,lose2,lose3,goal,silenceProb,maxSilence,awayCrowd,entranceVol,entranceDelay',
     suffixRegex: /^(\d+|\?\?\?)=(.+?)((?:,[\d.]+)+)?\s*(?:;.*)?$/,
-    hint: 'Chants IDs - double-click a folder on the left to insert it in raw mode. Entrance Anthem plays Entrance.mp3 from the chant folder at kickoff, using the Vol. Entrance / Entrance Delay fields below.',
+    hint: 'Chants - double-click a folder on the left to insert it in raw mode. Entrance Anthem plays Entrance.mp3 from the chant folder at kickoff, using the Vol. Entrance / Entrance Delay fields below.',
     suffixColumns: [
       { label: 'Default', placeholder: 'e.g. 0.12', type: 'slider', min: 0, max: 1, step: 0.01 },
       { label: 'Winning', placeholder: 'e.g. 0.15', type: 'slider', min: 0, max: 1, step: 0.01 },
@@ -144,7 +146,9 @@ const GBD_TYPES = {
     ],
   },
   stadiumnetname: {
+    group: 'nets',
     name: 'Stadium Net Names',
+    tabLabel: 'Net Names',
     rawOnly: false,
     rawWithPanel: true,
     path: 'StadiumGBD',
@@ -166,7 +170,9 @@ const GBD_TYPES = {
     ],
   },
   stadiumnetid: {
+    group: 'nets',
     name: 'Stadium Net IDs',
+    tabLabel: 'Net IDs',
     rawOnly: false,
     path: 'FSW',
     section: 'stadiumnetid',
@@ -186,7 +192,9 @@ const GBD_TYPES = {
     ],
   },
   scoreboardstdname: {
+    parentType: 'scoreboard',
     name: 'Scoreboard Stadium Names',
+    tabLabel: '[scoreboardstdname]',
     rawOnly: false,
     rawWithPanel: true,
     path: 'StadiumGBD',
@@ -360,6 +368,15 @@ const GBD_TYPES = {
 // so a member is simply the active type while the group tab is open.
 const TYPE_GROUPS = {
   gameplay: { name: 'Gameplay', members: ['ball', 'referee', 'wipe', 'adboard'] },
+  nets: { name: 'Nets', members: ['stadiumnetname', 'stadiumnetid'] },
+}
+
+// Types shown as an extra sub-tab of another type's top-level tab. Unlike a group
+// member they keep their own folder list, so opening one switches the active type.
+const LINKED_TYPES = { scoreboard: ['scoreboardstdname'] }
+
+function getOwnerType(typeKey) {
+  return GBD_TYPES[typeKey]?.parentType || typeKey
 }
 
 const state = {
@@ -368,6 +385,8 @@ const state = {
   iniContent: '',
   gbdFolders: {},
   gbdPacks: {},
+  chantInfo: {},
+  treeExpanded: {},
   sections: {},
   currentType: 'stadium',
   currentSection: 'stadium',
@@ -390,6 +409,7 @@ const state = {
     goalnet: null, goalpost: null, netsupport: null,
   },
   stadiumAssetsSearch: '',
+  stadiumAssetsListPage: 0,
   stadiumAssetsModal: null,
   stadiumAssetsToolbarPage: 0,
   leftPanelCollapsed: false,
@@ -412,6 +432,22 @@ function getTypeSections(typeKey) {
 
 function getDefaultSectionForType(typeKey) {
   return getTypeSections(typeKey)[0]
+}
+
+// Sections that only ever play the Entrance track of the assigned chant folder.
+const ENTRANCE_SECTIONS = ['roundentrance', 'tournamententrance']
+
+function isEntranceSection(secName) {
+  return ENTRANCE_SECTIONS.includes(secName)
+}
+
+// Folders offered in the left panel for the active section of a type.
+function getPanelItems(typeKey) {
+  const items = state.gbdFolders[typeKey] || []
+  if (typeKey === 'chantsid' && isEntranceSection(state.currentSection)) {
+    return items.filter((path) => state.chantInfo[path]?.entrance > 0)
+  }
+  return items
 }
 
 function setDbStatus(message, type = '') {
@@ -611,6 +647,7 @@ async function connectDesktopRoot(rootPath) {
 
   applyDesktopRoot(rootPath)
   loadDbTeams(rootPath, { silent: true })
+  loadCompetitions(rootPath)
   return true
 }
 
@@ -640,6 +677,7 @@ async function autoConnectSavedGameRoot() {
   applyDesktopRoot(saved.gameRootPath)
   if (await loadFromHandle(state.rootHandle)) {
     loadDbTeams(saved.gameRootPath, { silent: true })
+    loadCompetitions(saved.gameRootPath)
   }
 }
 
@@ -658,7 +696,8 @@ async function initDbPanel() {
   })
 
   refreshBtn?.addEventListener('click', () => {
-    loadDbTeams()
+    if (getActiveDbTab() === 'competitions') loadCompetitions()
+    else loadDbTeams()
   })
 
   searchInput?.addEventListener('input', (e) => {
@@ -666,6 +705,8 @@ async function initDbPanel() {
     applyDbFilter()
     renderDbTeams()
   })
+
+  initCompetitions({ isDesktop: isDesktopApp, getRootPath: () => state.db.gameRootPath, toast })
 
   if (!isDesktopApp || !window.electronAPI?.db?.getState) {
     setDbStatus('DB panel is available only in Desktop (Electron).', 'err')
@@ -690,6 +731,7 @@ async function resetDbPanelState(statusMessage = 'DB reset. Select your FIFA 16 
   applyDbFilter()
   renderDbTeams()
   setDbStatus(statusMessage)
+  resetCompetitions()
 
   if (isDesktopApp && window.electronAPI?.db?.clearGameRoot) {
     try {
@@ -1820,8 +1862,66 @@ document.getElementById('load-btn').addEventListener('click', async () => {
   }
 })
 
-async function loadFromHandle(rootHandle) {
-  showLoadingOverlay('Loading settings and folders…')
+// The runtime plays <name>.mp3 plus numbered variants (<name>2.mp3, <name>3.mp3...)
+// sitting directly in the chant folder; anything else (ClubSong_old.mp3) is ignored.
+function isNumberedTrack(fileName, baseName) {
+  return new RegExp('^' + baseName + '\\d*\\.mp3$', 'i').test(fileName)
+}
+
+async function countMp3Files(dir) {
+  let count = 0
+  try {
+    for await (const entry of dir.values()) {
+      if (entry.kind === 'file' && /\.mp3$/i.test(entry.name)) count++
+    }
+  } catch (e) {
+    // unreadable folder counts as empty
+  }
+  return count
+}
+
+// Collects the folders a [chantsid] / entrance line can point at, keyed by their
+// path relative to FSW/Chants. A chant folder is the one holding Support/ and
+// Complaint/ plus ClubSong.mp3 / Entrance.mp3, so those two sub-folders are part
+// of it and never listed on their own. Folders that only group other folders are
+// left out; an empty leaf is kept so a folder still being set up can be assigned.
+async function scanChantFolders(dir, prefix, info) {
+  const childDirs = []
+  const trackDirs = {}
+  let clubSong = 0
+  let entrance = 0
+  try {
+    for await (const entry of dir.values()) {
+      if (entry.kind === 'directory') {
+        const key = entry.name.toLowerCase()
+        if (prefix && (key === 'support' || key === 'complaint')) trackDirs[key] = entry
+        else childDirs.push(entry)
+      } else if (isNumberedTrack(entry.name, 'ClubSong')) {
+        clubSong++
+      } else if (isNumberedTrack(entry.name, 'Entrance')) {
+        entrance++
+      }
+    }
+  } catch (e) {
+    return
+  }
+
+  const isChantFolder = clubSong > 0 || entrance > 0 || !!trackDirs.support || !!trackDirs.complaint
+  if (prefix && (isChantFolder || childDirs.length === 0)) {
+    const [support, complaint] = await Promise.all([
+      trackDirs.support ? countMp3Files(trackDirs.support) : 0,
+      trackDirs.complaint ? countMp3Files(trackDirs.complaint) : 0,
+    ])
+    info[prefix] = { support, complaint, clubSong, entrance }
+  }
+
+  await Promise.all(childDirs.map((child) => scanChantFolders(child, prefix ? prefix + '/' + child.name : child.name, info)))
+}
+
+// keepIni rescans the folders but leaves the in-memory settings.ini alone, so a
+// reload with unsaved edits does not throw them away.
+async function loadFromHandle(rootHandle, { keepIni = false } = {}) {
+  showLoadingOverlay(keepIni ? 'Reloading folders…' : 'Loading settings and folders…')
   try {
     let fswDir
     let iniHandle
@@ -1833,13 +1933,17 @@ async function loadFromHandle(rootHandle) {
       return false
     }
 
-    const file = await iniHandle.getFile()
-    state.iniContent = await file.text()
     state.iniHandle = iniHandle
-    parseIni(state.iniContent)
+    if (!keepIni) {
+      const file = await iniHandle.getFile()
+      state.iniContent = await file.text()
+      parseIni(state.iniContent)
+    }
 
     state.gbdFolders = {}
     state.gbdPacks = {}
+    state.chantInfo = {}
+    clearStadiumAssetsCache()
     let totalLoaded = 0
 
     async function loadFoldersRecursive(dir, prefix = '') {
@@ -1872,7 +1976,11 @@ async function loadFromHandle(rootHandle) {
         }
 
         let folders = []
-        if (typeKey === 'chantsid' || typeKey === 'stadiumnetid') {
+        if (typeKey === 'chantsid') {
+          state.chantInfo = {}
+          await scanChantFolders(dir, '', state.chantInfo)
+          folders = Object.keys(state.chantInfo)
+        } else if (typeKey === 'stadiumnetid') {
           folders = await loadFoldersRecursive(dir)
         } else {
           for await (const entry of dir.values()) {
@@ -1914,7 +2022,12 @@ async function loadFromHandle(rootHandle) {
 
     showApp()
     renderAll()
-    toast('Loaded ' + totalLoaded + ' items - settings.ini ready', 'success')
+    toast(
+      keepIni
+        ? 'Reloaded ' + totalLoaded + ' items - unsaved settings.ini edits kept'
+        : 'Loaded ' + totalLoaded + ' items - settings.ini ready',
+      'success',
+    )
     return true
   } catch (e) {
     toast('Error loading: ' + e.message, 'error')
@@ -1939,18 +2052,59 @@ document.getElementById('btn-reset-paths').addEventListener('click', () => {
   updateStatusBar('No file loaded', false)
 })
 
+// Picks up folders added, renamed or deleted outside the editor. settings.ini is
+// re-read from disk too, unless there are unsaved edits, which stay as they are.
+document.getElementById('btn-reload').addEventListener('click', async () => {
+  if (!state.rootHandle) {
+    toast('No game folder loaded', 'error')
+    return
+  }
+  const btn = document.getElementById('btn-reload')
+  btn.disabled = true
+  try {
+    const loaded = await loadFromHandle(state.rootHandle, { keepIni: state.unsaved })
+    if (!loaded) return
+    if (isDesktopApp && state.db.gameRootPath) {
+      loadDbTeams(state.db.gameRootPath, { silent: true })
+      loadCompetitions(state.db.gameRootPath)
+    }
+  } finally {
+    btn.disabled = false
+  }
+})
+
+async function fetchLatestRelease() {
+  const res = await fetch('https://api.github.com/repos/michelMK45/cgfs-settings-editor/releases/latest')
+  if (!res.ok) throw new Error('Network error')
+  const data = await res.json()
+  const latest = (data.tag_name || '').replace(/^v/, '')
+  return { latest, hasUpdate: !!latest && latest !== __APP_VERSION__, data }
+}
+
+function setUpdateBadge(visible) {
+  document.getElementById('btn-check-updates')?.classList.toggle('has-update', visible)
+}
+
+// Silent startup check: only lights the notification dot, never toasts on failure.
+async function checkForUpdatesSilently() {
+  try {
+    const { hasUpdate } = await fetchLatestRelease()
+    setUpdateBadge(hasUpdate)
+  } catch {
+    // offline or rate-limited: leave the badge off
+  }
+}
+
 document.getElementById('btn-check-updates').addEventListener('click', async () => {
   const btn = document.getElementById('btn-check-updates')
   btn.disabled = true
   const origHTML = btn.innerHTML
   btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>Checking...'
   try {
-    const res = await fetch('https://api.github.com/repos/michelMK45/cgfs-settings-editor/releases/latest')
-    if (!res.ok) throw new Error('Network error')
-    const data = await res.json()
-    const latest = (data.tag_name || '').replace(/^v/, '')
+    const { latest, hasUpdate, data } = await fetchLatestRelease()
     const current = __APP_VERSION__
-    if (latest && latest !== current) {
+    setUpdateBadge(hasUpdate)
+    if (hasUpdate) {
       showUpdateModal(current, latest, data.html_url, data.body || '')
     } else {
       toast(`You're on the latest version (v${current})`, 'success')
@@ -1998,9 +2152,9 @@ function showUpdateModal(current, latest, releaseUrl, notes) {
   body.appendChild(info)
 
   if (notes.trim()) {
-    const notesEl = document.createElement('pre')
-    notesEl.style.cssText = 'background:var(--bg3); border:1px solid var(--border); border-radius:4px; padding:10px; font-size:11px; color:var(--text2); max-height:160px; overflow-y:auto; white-space:pre-wrap; word-break:break-word;'
-    notesEl.textContent = notes.trim()
+    const notesEl = document.createElement('div')
+    notesEl.className = 'markdown-body'
+    notesEl.innerHTML = renderMarkdown(notes)
     body.appendChild(notesEl)
   }
 
@@ -2240,13 +2394,14 @@ function renderGBDTypeTabs() {
   container.innerHTML = ''
 
   for (const [typeKey, typeConfig] of Object.entries(GBD_TYPES)) {
-    if (typeConfig.isSubSection || typeConfig.group) continue
+    if (typeConfig.isSubSection || typeConfig.group || typeConfig.parentType) continue
+    const isActiveTab = typeKey === getOwnerType(state.currentType)
     const tab = document.createElement('button')
-    tab.className = 'btn' + (typeKey === state.currentType ? ' active' : '')
+    tab.className = 'btn' + (isActiveTab ? ' active' : '')
     tab.style.display = 'flex'
     tab.style.alignItems = 'center'
     tab.style.gap = '4px'
-    if (typeKey === state.currentType) {
+    if (isActiveTab) {
       tab.style.color = 'var(--accent)'
       tab.style.borderColor = 'var(--accent)'
     }
@@ -2392,7 +2547,7 @@ function getAddedItems(typeKey, sectionOverride = null) {
 function renderItemList(typeKey) {
   if (typeKey === 'modules') return
   const typeConfig = GBD_TYPES[typeKey]
-  const items = state.gbdFolders[typeKey] || []
+  const items = getPanelItems(typeKey)
   const isInSubSection = typeConfig?.subSections?.includes(state.currentSection)
   const added = getAddedItems(typeKey, isInSubSection ? state.currentSection : null)
 
@@ -2449,6 +2604,7 @@ function renderItemList(typeKey) {
   document.getElementById('footer-stadiums-loaded').textContent = items.length + ' folders'
 
   const list = document.getElementById('item-list')
+  delete list.dataset.treeView
   list.innerHTML = ''
 
   if (filtered.length === 0) {
@@ -2499,139 +2655,199 @@ function renderItemList(typeKey) {
   })
 }
 
+// What a chant folder holds, as compact chips, so it is clear what assigning it
+// will play. Entrance sections only use the Entrance track, so only that is shown.
+function buildChantChips(path) {
+  const info = state.chantInfo[path]
+  const chips = document.createElement('span')
+  chips.className = 'tree-chips'
+  if (!info) return chips
+
+  const addChip = (icon, text, title, extraClass = '') => {
+    const chip = document.createElement('span')
+    chip.className = 'tree-chip' + (extraClass ? ' ' + extraClass : '')
+    chip.title = title
+    chip.innerHTML = (icon ? `<i class="fa-solid ${icon}"></i>` : '') + text
+    chips.appendChild(chip)
+  }
+  const variants = (count) => (count > 1 ? '×' + count : '')
+
+  if (isEntranceSection(state.currentSection)) {
+    // Every folder listed here has the track, so only extra variants are worth a chip.
+    if (info.entrance > 1) addChip('fa-person-walking', variants(info.entrance), `${info.entrance} Entrance variants, one picked at random`)
+    return chips
+  }
+
+  if (info.support) addChip('fa-bullhorn', info.support, `Support: ${info.support} chant${info.support > 1 ? 's' : ''}`)
+  if (info.complaint) addChip('fa-thumbs-down', info.complaint, `Complaint: ${info.complaint} chant${info.complaint > 1 ? 's' : ''} (losing by 3+)`)
+  if (info.clubSong) addChip('fa-futbol', variants(info.clubSong), `ClubSong.mp3 - goal song${info.clubSong > 1 ? ` (${info.clubSong} variants)` : ''}`)
+  if (info.entrance) addChip('fa-person-walking', variants(info.entrance), `Entrance.mp3 - entrance anthem${info.entrance > 1 ? ` (${info.entrance} variants)` : ''}`)
+  if (!chips.childElementCount) addChip('', 'empty', 'No Support, Complaint, ClubSong.mp3 or Entrance.mp3 in this folder yet', 'warn')
+  return chips
+}
+
+// Folder tree for types whose items are nested folder paths ("Spain/Santander").
+// Every row is a folder: the ones in `items` can be assigned, the rest only group
+// them. Expanded groups are remembered per type so re-renders keep the tree open.
 function renderItemListTree(typeKey, items, added) {
   const typeConfig = GBD_TYPES[typeKey]
-  const search = document.getElementById('search-items').value.toLowerCase()
+  const search = document.getElementById('search-items').value.trim().toLowerCase()
+  const isChants = typeKey === 'chantsid'
+  const entranceOnly = isChants && isEntranceSection(state.currentSection)
+  const selected = state.selectedItems[typeKey]
+  if (!state.treeExpanded[typeKey]) state.treeExpanded[typeKey] = new Set()
+  const expanded = state.treeExpanded[typeKey]
 
   const addedCount = added.size
-  document.getElementById('left-panel-title').textContent = typeConfig.name + ' folder' + (addedCount > 0 ? ` (${addedCount} added)` : '')
-
+  const titleBase = entranceOnly ? 'Entrance folder' : typeConfig.name + ' folder'
+  document.getElementById('left-panel-title').textContent = titleBase + (addedCount > 0 ? ` (${addedCount} added)` : '')
   document.getElementById('filter-tabs').innerHTML = ''
-  document.getElementById('item-count').textContent = items.length
-  document.getElementById('footer-stadiums-loaded').textContent = items.length + ' items'
+  document.getElementById('footer-stadiums-loaded').textContent = items.length + ' folders'
+
+  const root = { path: '', assignable: false, children: new Map() }
+  for (const item of items) {
+    let node = root
+    let path = ''
+    for (const part of item.split('/')) {
+      path = path ? path + '/' + part : part
+      if (!node.children.has(part)) node.children.set(part, { name: part, path, assignable: false, children: new Map() })
+      node = node.children.get(part)
+    }
+    node.assignable = true
+  }
+
+  // Assignable folders at or below a node that pass the search / hide-added filters.
+  const isHit = (node) =>
+    node.assignable && (!search || node.path.toLowerCase().includes(search)) && !(state.hideAddedItems && added.has(node.path))
+  const countHits = (node) => {
+    if (node.hits === undefined) {
+      node.hits = isHit(node) ? 1 : 0
+      for (const child of node.children.values()) node.hits += countHits(child)
+    }
+    return node.hits
+  }
 
   const list = document.getElementById('item-list')
+  const viewKey = typeKey + ':' + state.currentSection
+  const scrollTop = list.dataset.treeView === viewKey ? list.scrollTop : 0
+  list.dataset.treeView = viewKey
   list.innerHTML = ''
 
-  const tree = {}
-  items.forEach((item) => {
-    const parts = item.split('/')
-    let current = tree
-    for (let i = 0; i < parts.length; i++) {
-      if (!current[parts[i]]) {
-        current[parts[i]] = {}
-      }
-      current = current[parts[i]]
-    }
-    current.__fullPath = item
-  })
+  const totalHits = countHits(root)
+  document.getElementById('item-count').textContent = totalHits
 
-  const nodeHasMatch = (node, nodeFullPath) => {
-    const hasChildren = Object.keys(node).some((k) => k !== '__fullPath')
-    if (!hasChildren) {
-      if (state.hideAddedItems && added.has(node.__fullPath)) return false
-      return !search || nodeFullPath.toLowerCase().includes(search)
+  if (totalHits === 0) {
+    let msg = 'No items match your search.'
+    if (items.length === 0) {
+      msg = entranceOnly
+        ? 'No chant folder contains an Entrance.mp3.<br>Add one to a folder in FSW/Chants and reload.'
+        : 'No folders found.'
+    } else if (state.hideAddedItems && items.every((item) => added.has(item))) {
+      msg = 'All items are already added.'
     }
-    return Object.keys(node).some((k) => {
-      if (k === '__fullPath') return false
-      const childFullPath = nodeFullPath ? nodeFullPath + '/' + k : k
-      const childNode = node[k]
-      return nodeHasMatch(childNode, childFullPath)
+    list.innerHTML = `<div class="empty-state"><p>${msg}</p></div>`
+    return
+  }
+
+  // With a search, or only a handful of folders, show everything already open.
+  const autoExpand = !!search || totalHits <= 12
+
+  const syncSelection = () => {
+    list.querySelectorAll('.tree-row[data-item]').forEach((el) => {
+      el.classList.toggle('selected', selected.has(el.dataset.item))
     })
   }
 
-  const renderNode = (nodeTree, depth = 0, parentPath = '', targetList = null) => {
-    if (!targetList) targetList = list
+  const renderNodes = (parent, depth) => {
+    const nodes = [...parent.children.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
+    for (const node of nodes) {
+      if (countHits(node) === 0) continue
 
-    const keys = Object.keys(nodeTree)
-      .filter((k) => k !== '__fullPath')
-      .sort()
+      const hasChildren = [...node.children.values()].some((child) => countHits(child) > 0)
+      const isOpen = hasChildren && (autoExpand || expanded.has(node.path))
+      const isAdded = node.assignable && added.has(node.path)
 
-    keys.forEach((key) => {
-      const node = nodeTree[key]
-      const hasChildren = Object.keys(node).some((k) => k !== '__fullPath')
-      const isLeaf = !hasChildren
-      const currentPath = parentPath ? parentPath + '/' + key : key
-      const fullPath = isLeaf ? node.__fullPath : currentPath
+      const row = document.createElement('div')
+      row.className =
+        'item tree-row' +
+        (node.assignable ? '' : ' tree-group') +
+        (isAdded ? ' added' : '') +
+        (node.assignable && selected.has(node.path) ? ' selected' : '')
+      row.style.paddingLeft = 8 + depth * 14 + 'px'
+      row.title = node.path
+      if (node.assignable) row.dataset.item = node.path
 
-      if (!nodeHasMatch(node, currentPath)) {
-        return
+      const toggle = document.createElement('span')
+      toggle.className = 'tree-toggle'
+      if (hasChildren) toggle.innerHTML = `<i class="fa-solid fa-chevron-${isOpen ? 'down' : 'right'}"></i>`
+      row.appendChild(toggle)
+
+      const icon = document.createElement('i')
+      icon.className = 'tree-icon fa-solid ' + (isOpen ? 'fa-folder-open' : 'fa-folder')
+      row.appendChild(icon)
+
+      const name = document.createElement('span')
+      name.className = 'item-name'
+      name.textContent = node.name
+      row.appendChild(name)
+
+      if (node.assignable) {
+        if (isChants) row.appendChild(buildChantChips(node.path))
+      } else {
+        const count = document.createElement('span')
+        count.className = 'tree-count'
+        count.textContent = countHits(node)
+        row.appendChild(count)
       }
 
-      const isAdded = added.has(fullPath)
-      const isSelected = state.selectedItems[typeKey].has(fullPath)
+      if (isAdded) {
+        const check = document.createElement('div')
+        check.className = 'check-icon'
+        check.textContent = '✓'
+        row.appendChild(check)
+      }
 
-      if (isLeaf) {
-        const itemEl = document.createElement('div')
-        itemEl.className = 'item tree-item' + (isAdded ? ' added' : '') + (isSelected ? ' selected' : '')
-        itemEl.style.marginLeft = depth * 16 + 'px'
-        itemEl.dataset.item = fullPath
+      const toggleOpen = (e) => {
+        e.stopPropagation()
+        if (!hasChildren || autoExpand) return
+        expanded.has(node.path) ? expanded.delete(node.path) : expanded.add(node.path)
+        renderItemList(typeKey)
+      }
 
-        itemEl.innerHTML = `
-              <span class="item-name" title="${fullPath}">${key}</span>
-              ${isAdded ? '<div class="check-icon">✓</div>' : ''}
-            `
+      if (node.assignable) {
+        toggle.addEventListener('click', toggleOpen)
+        toggle.addEventListener('dblclick', (e) => e.stopPropagation())
 
-        itemEl.addEventListener('click', (e) => {
-          e.stopPropagation()
+        row.addEventListener('click', (e) => {
           if (isAdded) return
           if (e.shiftKey || e.ctrlKey || e.metaKey) {
-            state.selectedItems[typeKey].has(fullPath) ? state.selectedItems[typeKey].delete(fullPath) : state.selectedItems[typeKey].add(fullPath)
+            selected.has(node.path) ? selected.delete(node.path) : selected.add(node.path)
           } else {
-            state.selectedItems[typeKey].clear()
-            state.selectedItems[typeKey].add(fullPath)
+            selected.clear()
+            selected.add(node.path)
           }
-          document.querySelectorAll('.tree-item').forEach((el) => {
-            el.classList.remove('selected')
-          })
-          if (state.selectedItems[typeKey].has(fullPath)) {
-            itemEl.classList.add('selected')
-          }
+          syncSelection()
         })
 
-        itemEl.addEventListener('dblclick', () => {
-          const cfg = GBD_TYPES[typeKey]
+        row.addEventListener('dblclick', () => {
           if (isAdded) return
           if (state.viewMode === 'visual') {
-            addItemsToSection(typeKey, [fullPath])
-          } else if (cfg.rawWithPanel) {
-            insertTextAtRawCursor(fullPath)
+            addItemsToSection(typeKey, [node.path])
+          } else if (typeConfig.rawWithPanel) {
+            insertTextAtRawCursor(node.path)
           }
         })
-
-        targetList.appendChild(itemEl)
       } else {
-        const folderEl = document.createElement('div')
-        folderEl.className = 'tree-folder'
-        folderEl.style.marginLeft = depth * 16 + 'px'
-        folderEl.innerHTML = `
-              <span class="tree-toggle">▼</span>
-              <span class="tree-folder-name">${key}</span>
-            `
-
-        const childrenEl = document.createElement('div')
-        childrenEl.className = 'tree-children'
-        childrenEl.style.display = 'none'
-
-        folderEl.addEventListener('click', (e) => {
-          e.stopPropagation()
-          const isHidden = childrenEl.style.display === 'none'
-          childrenEl.style.display = isHidden ? '' : 'none'
-          const toggle = folderEl.querySelector('.tree-toggle')
-          toggle.textContent = isHidden ? '▼' : '▶'
-        })
-
-        targetList.appendChild(folderEl)
-        targetList.appendChild(childrenEl)
-
-        renderNode(node, depth + 1, currentPath, childrenEl)
-
-        folderEl.querySelector('.tree-toggle').textContent = '▶'
+        row.addEventListener('click', toggleOpen)
       }
-    })
+
+      list.appendChild(row)
+      if (isOpen) renderNodes(node, depth + 1)
+    }
   }
 
-  renderNode(tree)
+  renderNodes(root, 0)
+  list.scrollTop = scrollTop
 }
 
 // Stadium tab: Entries, one tab per sub-section (goalposts, entrance camera) and
@@ -2662,7 +2878,6 @@ function renderStadiumSectionTabs(tabsContainer, activeSection) {
   addTab('Assets', null, 'stadiumassets', () => {
     state.currentSection = 'stadiumassets'
     renderAll()
-    if (Object.keys(state.stadiumAssetsStatus).length === 0) scanAllStadiumAssets()
   })
 }
 
@@ -2702,7 +2917,7 @@ function renderEditor() {
 
   const tabsContainer = document.getElementById('section-tabs')
   tabsContainer.innerHTML = ''
-  const createSectionTab = (sectionName, labelOverride) => {
+  const createSectionTab = (sectionName, labelOverride, ownerType = state.currentType) => {
     const tab = document.createElement('div')
     tab.className = 'section-tab' + (sectionName === state.currentSection ? ' active' : '')
     tab.dataset.section = sectionName
@@ -2711,9 +2926,15 @@ function renderEditor() {
     tab.innerHTML = `${label} <span class="tab-count">${count}</span>`
     tab.addEventListener('click', () => {
       if (state.currentSection === sectionName) return
+      const switchType = ownerType !== state.currentType
+      state.currentType = ownerType
       state.currentSection = sectionName
-      renderItemList(state.currentType)
-      renderEditor()
+      if (switchType) {
+        renderAll()
+      } else {
+        renderItemList(state.currentType)
+        renderEditor()
+      }
       const subHint = GBD_TYPES[sectionName]?.hint
       if (subHint) document.getElementById('editor-hint').textContent = subHint
       else updateEditorHint(state.currentType)
@@ -2721,14 +2942,17 @@ function renderEditor() {
     tabsContainer.appendChild(tab)
   }
 
-  if (state.currentType === 'scoreboardstdname') {
-    createSectionTab('scoreboardstdname')
-  } else if (state.currentType === 'stadium') {
+  const ownerType = getOwnerType(state.currentType)
+  const ownerCfg = GBD_TYPES[ownerType]
+  if (state.currentType === 'stadium') {
     renderStadiumSectionTabs(tabsContainer, state.currentSection)
-  } else if (typeConfig?.subSections?.length) {
-    createSectionTab(typeConfig.iniSection)
-    for (const subSec of typeConfig.subSections) {
-      createSectionTab(subSec)
+  } else if (ownerCfg.subSections?.length || LINKED_TYPES[ownerType]) {
+    createSectionTab(ownerCfg.iniSection, null, ownerType)
+    for (const subSec of ownerCfg.subSections || []) {
+      createSectionTab(subSec, null, ownerType)
+    }
+    for (const linked of LINKED_TYPES[ownerType] || []) {
+      createSectionTab(GBD_TYPES[linked].iniSection, GBD_TYPES[linked].tabLabel, linked)
     }
   } else if (typeConfig?.group) {
     const group = TYPE_GROUPS[typeConfig.group]
@@ -2738,7 +2962,7 @@ function renderEditor() {
       const tab = document.createElement('div')
       tab.className = 'section-tab' + (member === state.currentType ? ' active' : '')
       const count = parseSection(memberCfg.iniSection).filter((e) => e.type === 'entry').length
-      tab.innerHTML = `${memberCfg.name} <span class="tab-count">${count}</span>`
+      tab.innerHTML = `${memberCfg.tabLabel || memberCfg.name} <span class="tab-count">${count}</span>`
       tab.addEventListener('click', () => {
         if (member === state.currentType) return
         state.currentType = member
@@ -3789,7 +4013,7 @@ document.getElementById('btn-add-all').addEventListener('click', () => {
       ? state.currentSection
       : typeConfig.iniSection
   if (!confirm(`Add ALL ${typeConfig.name.toLowerCase()} to [${targetSection}]? You can remove unwanted ones after.`)) return
-  addItemsToSection(typeKey, [...(state.gbdFolders[typeKey] || [])])
+  addItemsToSection(typeKey, [...getPanelItems(typeKey)])
 })
 
 document.getElementById('btn-sort').addEventListener('click', () => {
@@ -3942,6 +4166,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     persistLeftPanelState()
     syncLeftPanelLayout()
   })
+  checkForUpdatesSilently()
   await autoConnectSavedGameRoot()
 })
 
@@ -4092,96 +4317,143 @@ const NULL_ASSET_STATUS = (error) => ({
   ...(error ? { error } : {}),
 })
 
-async function scanAllStadiumAssets() {
-  const stadiums = state.gbdFolders.stadium || []
+// The Assets list is paged and each stadium is only scanned when its page is first
+// shown; the result is cached in state.stadiumAssetsStatus until the next refresh.
+const STADIUM_ASSETS_PAGE_SIZE = 50
+const STADIUM_ASSETS_SCAN_CONCURRENCY = 6
+
+// In-flight scans by stadium name, so a page and a bulk action never scan the same
+// stadium twice. The generation drops results that land after the cache was cleared.
+const stadiumAssetScans = new Map()
+let stadiumAssetsScanGeneration = 0
+let stadiumAssetsScanTimer = null
+
+function clearStadiumAssetsCache() {
   state.stadiumAssetsStatus = {}
-  for (const s of stadiums) {
-    state.stadiumAssetsStatus[s] = { scanning: true }
+  stadiumAssetScans.clear()
+  stadiumAssetsScanGeneration++
+}
+
+function isStadiumAssetsScanned(stadiumName) {
+  const status = state.stadiumAssetsStatus[stadiumName]
+  return !!status && !status.scanning
+}
+
+async function readStadiumFolderAssets(stadiumGBDHandle, stadiumName) {
+  if (!stadiumGBDHandle) return NULL_ASSET_STATUS()
+
+  let stadDir
+  try { stadDir = await stadiumGBDHandle.getDirectoryHandle(stadiumName) }
+  catch (_) { return EMPTY_ASSET_STATUS() }
+
+  const hasFile = async (dir, fileName) => {
+    try { await dir.getFileHandle(fileName); return true } catch (_) { return false }
   }
-  renderStadiumAssetsPanel()
+
+  const scanCamPair = async (category) => {
+    const cam = CAM_ASSETS[category]
+    try {
+      const camDir = await stadDir.getDirectoryHandle(cam.dir)
+      const [has176, has261] = await Promise.all([hasFile(camDir, cam.file('176')), hasFile(camDir, cam.file('261'))])
+      return { has176, has261 }
+    } catch (_) {
+      return { has176: false, has261: false }
+    }
+  }
+
+  const scanGoalpost = async () => {
+    try {
+      const gpDir = await stadDir.getDirectoryHandle(GOALPOST_DIR)
+      const [hasGoalnet, hasGoalpost, hasNetsupport] = await Promise.all([
+        hasFile(gpDir, GOALPOST_FILES.goalnet),
+        hasFile(gpDir, GOALPOST_FILES.goalpost),
+        hasFile(gpDir, GOALPOST_FILES.netsupport),
+      ])
+      return { hasGoalnet, hasGoalpost, hasNetsupport }
+    } catch (_) {
+      return { hasGoalnet: false, hasGoalpost: false, hasNetsupport: false }
+    }
+  }
+
+  const [gameplay, entrance, goalpost] = await Promise.all([scanCamPair('gameplay'), scanCamPair('entrance'), scanGoalpost()])
+  return { gameplay, entrance, goalpost }
+}
+
+async function readStadiumArchiveAssets(stadiumName) {
+  if (!isDesktopApp || !window.electronAPI?.stadiumAssets) return NULL_ASSET_STATUS('Desktop app required for archives')
+  const gameRoot = getGameRootPathForDesktopActions()
+  if (!gameRoot) return NULL_ASSET_STATUS('Set game root path to scan archives')
+
+  const archivePath = gameRoot + '\\StadiumGBD\\' + stadiumName
+  const result = /\.zip$/i.test(stadiumName)
+    ? await window.electronAPI.stadiumAssets.scanZip(archivePath)
+    : await window.electronAPI.stadiumAssets.scanRar(archivePath)
+  if (result.noTool) return NULL_ASSET_STATUS('7-Zip required for RAR. Install from 7-zip.org.')
+  return {
+    gameplay: { has176: result.gameplay.has176, has261: result.gameplay.has261 },
+    entrance: { has176: result.entrance.has176, has261: result.entrance.has261 },
+    goalpost: { hasGoalnet: result.goalpost.hasGoalnet, hasGoalpost: result.goalpost.hasGoalpost, hasNetsupport: result.goalpost.hasNetsupport },
+    ...(result.error ? { error: result.error } : {}),
+  }
+}
+
+function scanOneStadiumAssets(stadiumName, stadiumGBDHandle) {
+  if (isStadiumAssetsScanned(stadiumName)) return Promise.resolve()
+  let job = stadiumAssetScans.get(stadiumName)
+  if (job) return job
+
+  const generation = stadiumAssetsScanGeneration
+  state.stadiumAssetsStatus[stadiumName] = { scanning: true }
+  const read = /\.(zip|rar)$/i.test(stadiumName)
+    ? readStadiumArchiveAssets(stadiumName)
+    : readStadiumFolderAssets(stadiumGBDHandle, stadiumName)
+  job = read
+    .catch((e) => NULL_ASSET_STATUS(e.message))
+    .then((status) => {
+      if (generation !== stadiumAssetsScanGeneration) return
+      state.stadiumAssetsStatus[stadiumName] = status
+      stadiumAssetScans.delete(stadiumName)
+    })
+  stadiumAssetScans.set(stadiumName, job)
+  return job
+}
+
+// Scans the stadiums in `names` that are not cached yet, a few at a time.
+// onScanned(name, done, total) fires as each one finishes.
+async function scanStadiumAssets(names, onScanned) {
+  const todo = names.filter((s) => !isStadiumAssetsScanned(s))
+  if (todo.length === 0) return
 
   let stadiumGBDHandle = null
   if (state.rootHandle) {
     try { stadiumGBDHandle = await state.rootHandle.getDirectoryHandle('StadiumGBD') } catch (_) {}
   }
 
-  for (const stadiumName of stadiums) {
-    if (/\.(zip|rar)$/i.test(stadiumName)) continue
-    if (!stadiumGBDHandle) {
-      state.stadiumAssetsStatus[stadiumName] = NULL_ASSET_STATUS()
-      continue
-    }
-    try {
-      let stadDir
-      try { stadDir = await stadiumGBDHandle.getDirectoryHandle(stadiumName) }
-      catch (_) { state.stadiumAssetsStatus[stadiumName] = EMPTY_ASSET_STATUS(); continue }
-
-      const scanCamPair = async (category) => {
-        const cam = CAM_ASSETS[category]
-        const found = { has176: false, has261: false }
-        try {
-          const camDir = await stadDir.getDirectoryHandle(cam.dir)
-          for (const slot of ['176', '261']) {
-            try { await camDir.getFileHandle(cam.file(slot)); found[`has${slot}`] = true } catch (_) {}
-          }
-        } catch (_) {}
-        return found
-      }
-
-      let hasGoalnet = false, hasGoalpost = false, hasNetsupport = false
-      try {
-        const gpDir = await stadDir.getDirectoryHandle(GOALPOST_DIR)
-        try { await gpDir.getFileHandle(GOALPOST_FILES.goalnet);    hasGoalnet = true }    catch (_) {}
-        try { await gpDir.getFileHandle(GOALPOST_FILES.goalpost);   hasGoalpost = true }   catch (_) {}
-        try { await gpDir.getFileHandle(GOALPOST_FILES.netsupport); hasNetsupport = true } catch (_) {}
-      } catch (_) {}
-
-      state.stadiumAssetsStatus[stadiumName] = {
-        gameplay: await scanCamPair('gameplay'),
-        entrance: await scanCamPair('entrance'),
-        goalpost: { hasGoalnet, hasGoalpost, hasNetsupport },
-      }
-    } catch (e) {
-      state.stadiumAssetsStatus[stadiumName] = NULL_ASSET_STATUS(e.message)
+  let next = 0
+  let done = 0
+  const worker = async () => {
+    while (next < todo.length) {
+      const stadiumName = todo[next++]
+      await scanOneStadiumAssets(stadiumName, stadiumGBDHandle)
+      done++
+      if (onScanned) onScanned(stadiumName, done, todo.length)
     }
   }
+  await Promise.all(Array.from({ length: Math.min(STADIUM_ASSETS_SCAN_CONCURRENCY, todo.length) }, worker))
+}
 
-  const archiveStadiums = stadiums.filter((s) => /\.(zip|rar)$/i.test(s))
-  if (archiveStadiums.length > 0) {
-    if (!isDesktopApp || !window.electronAPI?.stadiumAssets) {
-      for (const s of archiveStadiums) {
-        state.stadiumAssetsStatus[s] = NULL_ASSET_STATUS('Desktop app required for archives')
-      }
-    } else {
-      const gameRoot = getGameRootPathForDesktopActions()
-      for (const s of archiveStadiums) {
-        if (!gameRoot) {
-          state.stadiumAssetsStatus[s] = NULL_ASSET_STATUS('Set game root path to scan archives')
-          continue
-        }
-        const archivePath = gameRoot + '\\StadiumGBD\\' + s
-        try {
-          const result = /\.zip$/i.test(s)
-            ? await window.electronAPI.stadiumAssets.scanZip(archivePath)
-            : await window.electronAPI.stadiumAssets.scanRar(archivePath)
-          if (result.noTool) {
-            state.stadiumAssetsStatus[s] = NULL_ASSET_STATUS('7-Zip required for RAR. Install from 7-zip.org.')
-          } else {
-            state.stadiumAssetsStatus[s] = {
-              gameplay: { has176: result.gameplay.has176, has261: result.gameplay.has261 },
-              entrance: { has176: result.entrance.has176, has261: result.entrance.has261 },
-              goalpost: { hasGoalnet: result.goalpost.hasGoalnet, hasGoalpost: result.goalpost.hasGoalpost, hasNetsupport: result.goalpost.hasNetsupport },
-              ...(result.error ? { error: result.error } : {}),
-            }
-          }
-        } catch (e) {
-          state.stadiumAssetsStatus[s] = NULL_ASSET_STATUS(e.message)
-        }
-      }
-    }
+// The "all stadiums" actions decide per stadium from its status, so every stadium
+// has to be scanned first, not only the pages opened so far.
+async function ensureAllStadiumAssetsScanned() {
+  const stadiums = state.gbdFolders.stadium || []
+  const pending = stadiums.filter((s) => !isStadiumAssetsScanned(s)).length
+  if (pending === 0) return
+  showLoadingOverlay(`Scanning stadiums… 0 / ${pending}`)
+  try {
+    await scanStadiumAssets(stadiums, (_name, done, total) => showLoadingOverlay(`Scanning stadiums… ${done} / ${total}`))
+  } finally {
+    hideLoadingOverlay()
   }
-
-  renderStadiumAssetsPanel()
 }
 
 // Folder and file name inside a stadium for an asset.
@@ -4373,6 +4645,7 @@ async function applyCamToAll(category) {
     return
   }
 
+  await ensureAllStadiumAssetsScanned()
   const stadiums = state.gbdFolders.stadium || []
   const missing176 = stadiums.filter((s) => !state.stadiumAssetsStatus[s]?.[category]?.has176)
   const missing261 = stadiums.filter((s) => !state.stadiumAssetsStatus[s]?.[category]?.has261)
@@ -4421,6 +4694,7 @@ async function applyGoalpostToAll() {
     return
   }
 
+  await ensureAllStadiumAssetsScanned()
   const stadiums = state.gbdFolders.stadium || []
   const missing = stadiums.filter((s) => {
     const gp = state.stadiumAssetsStatus[s]?.goalpost
@@ -4456,6 +4730,7 @@ async function applyGoalpostToAll() {
 
 async function removeCamFromAll(category) {
   const cam = CAM_ASSETS[category]
+  await ensureAllStadiumAssetsScanned()
   const stadiums = state.gbdFolders.stadium || []
   const present176 = stadiums.filter((s) => state.stadiumAssetsStatus[s]?.[category]?.has176)
   const present261 = stadiums.filter((s) => state.stadiumAssetsStatus[s]?.[category]?.has261)
@@ -4493,6 +4768,7 @@ async function removeCamFromAll(category) {
 }
 
 async function removeGoalpostFromAll() {
+  await ensureAllStadiumAssetsScanned()
   const stadiums = state.gbdFolders.stadium || []
   const present = stadiums.filter((s) => {
     const gp = state.stadiumAssetsStatus[s]?.goalpost
@@ -4778,7 +5054,11 @@ function renderStadiumAssetsPanel() {
   const scanBtn = document.createElement('button')
   scanBtn.className = 'btn'
   scanBtn.textContent = 'Scan / Refresh'
-  scanBtn.addEventListener('click', () => scanAllStadiumAssets())
+  scanBtn.title = 'Forget the scanned status and scan again. Each page is scanned when you open it.'
+  scanBtn.addEventListener('click', () => {
+    clearStadiumAssetsCache()
+    renderStadiumAssetsPanel()
+  })
   toolbar.appendChild(scanBtn)
 
   const hasRars = (state.gbdFolders.stadium || []).some((s) => /\.rar$/i.test(s))
@@ -4933,9 +5213,11 @@ function renderStadiumAssetsPanel() {
   countEl.className = 'gameplay-cam-count'
   searchRow.appendChild(countEl)
 
-  panel.appendChild(searchRow)
+  const topPager = document.createElement('div')
+  topPager.className = 'sa-pager'
+  searchRow.appendChild(topPager)
 
-  const initQuery = state.stadiumAssetsSearch.trim().toLowerCase()
+  panel.appendChild(searchRow)
 
   // Table
   if (stadiums.length === 0) {
@@ -4957,17 +5239,22 @@ function renderStadiumAssetsPanel() {
     }
     table.appendChild(thead)
 
+    const rowsEl = document.createElement('div')
+    table.appendChild(rowsEl)
+
     const noMatchEl = document.createElement('div')
     noMatchEl.className = 'gameplay-cam-no-results'
     noMatchEl.style.display = 'none'
     table.appendChild(noMatchEl)
 
-    let visibleCount = 0
-    for (const stadiumName of stadiums) {
+    const bottomPager = document.createElement('div')
+    bottomPager.className = 'sa-pager sa-pager-bottom'
+
+    const buildRow = (stadiumName) => {
       const isZip = /\.zip$/i.test(stadiumName)
       const isRar = /\.rar$/i.test(stadiumName)
       const status = state.stadiumAssetsStatus[stadiumName]
-      const scanning = !!status?.scanning
+      const scanning = !isStadiumAssetsScanned(stadiumName)
       const error = status?.error || null
       const gp = status?.gameplay || {}
       const entrance = status?.entrance || {}
@@ -4977,11 +5264,6 @@ function renderStadiumAssetsPanel() {
       const row = document.createElement('div')
       row.className = 'sa-row'
       row.dataset.stadium = normalizedName.toLowerCase()
-      if (initQuery && !normalizedName.toLowerCase().includes(initQuery)) {
-        row.style.display = 'none'
-      } else {
-        visibleCount++
-      }
 
       // Stadium name
       const nameCell = document.createElement('span')
@@ -5041,12 +5323,13 @@ function renderStadiumAssetsPanel() {
         })
         actionCell.appendChild(convertBtn)
       } else {
-        const canEditRow = isZip ? !!getGameRootPathForDesktopActions() : canEdit
+        // The modal edits from the scanned status, so it stays closed until the scan lands.
+        const canEditRow = (isZip ? !!getGameRootPathForDesktopActions() : canEdit) && !scanning
         const openBtn = document.createElement('button')
         openBtn.className = 'btn sa-open-btn'
         openBtn.textContent = 'Open'
         openBtn.disabled = !canEditRow
-        if (isZip && !canEditRow) openBtn.title = 'Game folder not set (use Change Paths) to edit archive stadiums'
+        if (isZip && !canEditRow && !scanning) openBtn.title = 'Game folder not set (use Change Paths) to edit archive stadiums'
         openBtn.addEventListener('click', (e) => {
           e.stopPropagation()
           if (canEditRow) openStadiumAssetsModal(stadiumName)
@@ -5056,34 +5339,112 @@ function renderStadiumAssetsPanel() {
       }
 
       row.appendChild(actionCell)
-      table.appendChild(row)
+      return row
     }
 
-    noMatchEl.textContent = `No stadiums match "${state.stadiumAssetsSearch}"`
-    noMatchEl.style.display = (initQuery && visibleCount === 0) ? '' : 'none'
-    countEl.textContent = initQuery
-      ? `${visibleCount} / ${stadiums.length} stadiums`
-      : `${stadiums.length} stadiums`
+    const renderPager = (pagerEl, pageCount, goToPage) => {
+      pagerEl.innerHTML = ''
+      pagerEl.style.display = pageCount > 1 ? '' : 'none'
+      if (pageCount <= 1) return
+      const page = state.stadiumAssetsListPage
+
+      const addBtn = (icon, title, target, disabled) => {
+        const btn = document.createElement('button')
+        btn.className = 'btn sa-pager-btn'
+        btn.title = title
+        btn.disabled = disabled
+        btn.innerHTML = `<i class="fa-solid ${icon}"></i>`
+        btn.addEventListener('click', () => goToPage(target))
+        pagerEl.appendChild(btn)
+      }
+
+      addBtn('fa-angles-left', 'First page', 0, page === 0)
+      addBtn('fa-angle-left', 'Previous page', page - 1, page === 0)
+
+      const label = document.createElement('span')
+      label.className = 'sa-pager-label'
+      label.appendChild(document.createTextNode('Page '))
+      const pageInput = document.createElement('input')
+      pageInput.type = 'number'
+      pageInput.className = 'sa-pager-input'
+      pageInput.min = '1'
+      pageInput.max = String(pageCount)
+      pageInput.value = String(page + 1)
+      pageInput.title = 'Go to page'
+      pageInput.addEventListener('change', () => {
+        const target = parseInt(pageInput.value, 10)
+        if (Number.isNaN(target)) pageInput.value = String(page + 1)
+        else goToPage(target - 1)
+      })
+      label.appendChild(pageInput)
+      label.appendChild(document.createTextNode(' / ' + pageCount))
+      pagerEl.appendChild(label)
+
+      addBtn('fa-angle-right', 'Next page', page + 1, page >= pageCount - 1)
+      addBtn('fa-angles-right', 'Last page', pageCount - 1, page >= pageCount - 1)
+    }
+
+    // Renders the current page of the (filtered) list and scans whatever on it is
+    // not cached yet; rows are swapped in place as their scan finishes.
+    const renderRows = (scanDelay = 0) => {
+      const query = state.stadiumAssetsSearch.trim().toLowerCase()
+      const matches = query
+        ? stadiums.filter((s) => normalizeStadiumItemName(s).toLowerCase().includes(query))
+        : stadiums
+      const pageCount = Math.max(1, Math.ceil(matches.length / STADIUM_ASSETS_PAGE_SIZE))
+      state.stadiumAssetsListPage = Math.min(Math.max(0, state.stadiumAssetsListPage), pageCount - 1)
+      const first = state.stadiumAssetsListPage * STADIUM_ASSETS_PAGE_SIZE
+      const pageItems = matches.slice(first, first + STADIUM_ASSETS_PAGE_SIZE)
+
+      const rowByName = new Map()
+      rowsEl.innerHTML = ''
+      for (const stadiumName of pageItems) {
+        const row = buildRow(stadiumName)
+        rowByName.set(stadiumName, row)
+        rowsEl.appendChild(row)
+      }
+
+      noMatchEl.textContent = `No stadiums match "${state.stadiumAssetsSearch}"`
+      noMatchEl.style.display = matches.length === 0 ? '' : 'none'
+
+      const range = pageItems.length ? `${first + 1}–${first + pageItems.length} of ` : ''
+      countEl.textContent = query
+        ? `${range}${matches.length} / ${stadiums.length} stadiums`
+        : `${range}${stadiums.length} stadiums`
+
+      const goToPage = (target) => {
+        state.stadiumAssetsListPage = target
+        renderRows()
+        editorEl.scrollTop = 0
+      }
+      renderPager(topPager, pageCount, goToPage)
+      renderPager(bottomPager, pageCount, goToPage)
+
+      clearTimeout(stadiumAssetsScanTimer)
+      if (pageItems.some((s) => !isStadiumAssetsScanned(s))) {
+        const scanPage = () =>
+          scanStadiumAssets(pageItems, (stadiumName) => {
+            const oldRow = rowByName.get(stadiumName)
+            if (!oldRow?.isConnected) return
+            const newRow = buildRow(stadiumName)
+            rowByName.set(stadiumName, newRow)
+            oldRow.replaceWith(newRow)
+          })
+        // While typing in the search box, wait for a pause before scanning the matches.
+        if (scanDelay > 0) stadiumAssetsScanTimer = setTimeout(scanPage, scanDelay)
+        else scanPage()
+      }
+    }
 
     searchInput.addEventListener('input', (e) => {
       state.stadiumAssetsSearch = e.target.value
-      const q = e.target.value.trim().toLowerCase()
-      const allRows = table.querySelectorAll('.sa-row:not(.sa-thead)')
-      let cnt = 0
-      allRows.forEach((r) => {
-        const name = r.dataset.stadium || ''
-        const match = !q || name.includes(q)
-        r.style.display = match ? '' : 'none'
-        if (match) cnt++
-      })
-      noMatchEl.textContent = `No stadiums match "${e.target.value}"`
-      noMatchEl.style.display = (q && cnt === 0) ? '' : 'none'
-      countEl.textContent = q
-        ? `${cnt} / ${stadiums.length} stadiums`
-        : `${stadiums.length} stadiums`
+      state.stadiumAssetsListPage = 0
+      renderRows(300)
     })
 
     panel.appendChild(table)
+    panel.appendChild(bottomPager)
+    renderRows()
   }
 
   editorEl.appendChild(panel)

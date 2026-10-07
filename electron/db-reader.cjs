@@ -196,4 +196,6 @@ async function readTeamsFromGameRoot(gameRootPath) {
 module.exports = {
   readTeamsFromGameRoot,
   buildDbPaths,
+  resolveDllPath,
+  resolvePowerShellExecutable,
 }
